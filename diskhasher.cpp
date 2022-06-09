@@ -531,5 +531,6 @@ int main(int argc, const char* argv[])
 
     std::cout << "[+] Done" << std::endl << std::endl;
     close_log();
+    destroy_hash_concurrency_limit();
     return 0;
 }
