@@ -11,16 +11,20 @@ use std::thread;
 use walkdir::WalkDir;
 
 // CLI stuff
-use clap::Parser;
-#[derive(Parser,Default,Debug)]
-#[clap(about="Hash a directory's files and optionally check against existing hashfile")]
+use clap::{Parser, ValueEnum};
+#[derive(Parser)]
+#[clap(author, version, about="Hash a directory's files and optionally check against existing hashfile")]
 struct Arguments {
+    /// Path to the directory we want to validate
     #[clap(short,long)]
     directory: String,
+    /// Algorithm to use (SHA1, SHA256)
     #[clap(short,long)]
-    algorithm: String,
+    #[arg(value_enum)]
+    algorithm: HashAlg,
+    /// Regex pattern used to identify hashfiles
     #[clap(short,long)]
-    hashfile_pattern: Option<String>,
+    pattern: Option<String>,
     //#[clap(short,long)]
     //logfile: Option<String>,
     //#[clap(short,long)]
@@ -38,7 +42,7 @@ struct FileData {
     expected_hash: String
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 enum HashAlg {
     MD5,
     SHA1,
@@ -59,14 +63,6 @@ fn main()
 {
     let args = Arguments::parse();
 
-    // Validate algorithm selection
-    let alg = match args.algorithm.as_str() {
-        "md5" | "MD5" => HashAlg::MD5,
-        "sha1" | "SHA1" => HashAlg::SHA1,
-        "sha256" | "SHA256" => HashAlg::SHA256,
-        _ => panic!("Algorithm '{:?} is not supported", args.algorithm)
-    };
-
     // Recursively enumerate directory
     let root_path = match fs::canonicalize(Path::new(&args.directory)) {
         Ok(v) => v,
@@ -75,7 +71,7 @@ fn main()
 
     let all_files = recursive_dir(&root_path).unwrap();
 
-    let hashfile_pattern = args.hashfile_pattern.unwrap_or("*".to_string());
+    let hashfile_pattern = args.pattern.unwrap_or("*".to_string());
     let hash_regex = match Regex::new(&hashfile_pattern) {
         Ok(v) => v,
         Err(_e) => panic!("Invalid regular expression '{}'", hashfile_pattern)
@@ -104,7 +100,7 @@ fn main()
     // TODO - Threadpooling these spawned tasks
     let pending_tasks : Vec<_> = checked_files
         .into_iter()
-        .map( |task| thread::spawn(move || {perform_hash(task, alg)}) )
+        .map( |task| thread::spawn(move || {perform_hash(task, args.algorithm)}) )
         .collect();
 
     // TODO - better processing of results
