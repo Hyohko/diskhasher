@@ -320,6 +320,7 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
 
     if(checksum_files.size() == 1 && checksum_files[0] == COMPUTE_ONLY)
     {
+        std::cout << "[!] No checksum files given - no log files will be generated" << std::endl;
         std::for_each(all_files.begin(), all_files.end(), [&](const auto& path)
         {
             all_hashes.emplace_back(path, IGNORE_HASH_CHECK);
@@ -496,6 +497,13 @@ int main(int argc, const char* argv[])
     // on file size, we get results faster on the vast majority of the files. Less blocking
     // on big files in lieu of smaller ones.
     size_t numFiles = tasks.size();
+    if(numFiles == 0)
+    {
+        std::cout << "[+] Done: No files to process" << std::endl << std::endl;
+        close_log();
+        return 0;
+    }
+
     double progressAmt = (1.0 / (double)numFiles) * 100;
     double totalProgress = 0.0;
     size_t approxFivePct = numFiles / 20;
