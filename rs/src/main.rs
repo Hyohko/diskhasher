@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::{BufReader, BufRead, Read};
 use std::path::{Path, PathBuf};
 use std::thread;
+use threadpool::ThreadPool;
 use walkdir::WalkDir;
 
 // CLI stuff
@@ -104,15 +105,35 @@ fn main()
     }
 
     // TODO - Threadpooling these spawned tasks
-    let pending_tasks : Vec<_> = checked_files
+    const USE_THREADPOOL: bool = true;
+
+    if USE_THREADPOOL {
+        let num_threads = match thread::available_parallelism() {
+            Ok(v) => v.get(),
+            Err(_e) => panic!("Couldn't get number of threads")
+        };
+        let pool = ThreadPool::new(num_threads);
+
+        for task in checked_files
+        {
+            pool.execute(move || {
+                perform_hash(task, args.algorithm);
+            });
+        }
+
+        // Wait for all threads to finish
+        pool.join();
+    } else {
+        let pending_tasks : Vec<_> = checked_files
         .into_iter()
         .map( |task| thread::spawn(move || {perform_hash(task, args.algorithm)}) )
         .collect();
 
-    // TODO - better processing of results
-    for my_task in pending_tasks{
-        let _result = my_task.join();
-    }    
+        for my_task in pending_tasks{
+            let _result = my_task.join();
+        }
+    }
+        
 }
 
 /// Recursively enumerates an absolute (canonicalized) path,
@@ -187,6 +208,8 @@ fn load_hashes(hashfiles: &Vec<FileData>, abs_root_path: &Path) -> Result<HashMa
     }
     Ok(hash_vec)
 }
+
+// use md5;
 
 // You can use something like this when parsing user input, CLI arguments, etc.
 // DynDigest needs to be boxed here, since function return should be sized.
