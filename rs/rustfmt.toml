@@ -1,0 +1,6 @@
+### Unstable formatting
+# imports_layout = "Vertical"
+# imports_granularity = "One"
+
+### Stable formatting
+newline_style = "Unix"
