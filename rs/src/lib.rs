@@ -86,12 +86,11 @@ pub fn load_hashes(
         Regex::new(r"([[:xdigit:]]{32})|([[:xdigit:]]{48})|([[:xdigit:]]{64})").unwrap();
 
     for f in hashfiles {
-        println!("{:?} : {} bytes", f.path, f.size);
         let file = match File::open(&f.path) {
             Ok(v) => v,
             Err(_e) => {
                 println!(
-                    "ERROR {} : File '{}' cannot be opened",
+                    "[!] ERROR {} : Hashfile '{}' cannot be opened",
                     f.path.display(),
                     _e
                 );
@@ -104,7 +103,7 @@ pub fn load_hashes(
                 Ok(v) => v,
                 Err(_e) => {
                     return Err(format!(
-                        "ERROR {} : Line from file '{}' cannot be read",
+                        "[!] ERROR {} : Line from file '{}' cannot be read",
                         f.path.display(),
                         _e
                     ))
@@ -153,15 +152,14 @@ fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
     }
 }
 
-/// Thread function that opens file, hashes, and compares with expected hash
-pub fn perform_hash(fdata: FileData, alg: HashAlg) -> Result<bool, String> {
+fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, String> {
     // file existence check performed earlier, though we could put one here for completeness
     let mut hasher = select_hasher(alg);
 
     // open file and read data into heap-based buffer
     const BUFSIZE: usize = 1024 * 1024 * 2; // 2 MB
     let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
-    let mut file = match File::open(&fdata.path) {
+    let mut file = match File::open(path) {
         Ok(v) => v,
         Err(_e) => return Err(format!("Unable to open file - Error {}", _e)),
     };
@@ -177,13 +175,40 @@ pub fn perform_hash(fdata: FileData, alg: HashAlg) -> Result<bool, String> {
             break;
         }
     }
-    let actual_hash = hex::encode(hasher.finalize());
-    let success: bool = &fdata.expected_hash == &actual_hash;
-    if success {
+
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Thread function that opens file, hashes, and compares with expected hash
+pub fn perform_hash(
+    fdata: FileData,
+    alg: HashAlg,
+    force: bool,
+    verbose: bool,
+) -> Result<bool, String> {
+    let actual_hash = match hash_file(&fdata.path, alg) {
+        Ok(v) => v,
+        Err(_e) => return Err(format!("Read failure: {}", _e)),
+    };
+
+    // Compute checksum and don't check expected vs actual
+    if force {
         println!(
-            "[+] Checksum passed: {:?}\n\tActual hash  : {:?}",
+            "[*] Checksum value : {:?}\n\tHash         : {:?}",
             &fdata.path, actual_hash
         );
+        return Ok(true);
+    }
+
+    // Compare
+    let success: bool = &fdata.expected_hash == &actual_hash;
+    if success {
+        if verbose {
+            println!(
+                "[+] Checksum passed: {:?}\n\tActual hash  : {:?}",
+                &fdata.path, actual_hash
+            );
+        }
     } else {
         println!(
             "[-] Checksum failed: {:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",

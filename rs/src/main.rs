@@ -1,6 +1,7 @@
 use {
-    clap::Parser, diskhasher::*, regex::Regex, std::fs::canonicalize, std::path::Path,
-    std::thread::available_parallelism, threadpool::ThreadPool,
+    clap::Parser, diskhasher::*, regex::Regex, std::collections::HashMap, std::fs::canonicalize,
+    std::path::Path, std::path::PathBuf, std::process, std::thread::available_parallelism,
+    threadpool::ThreadPool,
 };
 
 // CLI stuff
@@ -26,42 +27,54 @@ struct Arguments {
     //logfile: Option<String>,
     //#[clap(short,long)]
     //success_log: Option<bool>,
-    //#[clap(short,long)]
-    //force: Option<bool>,
-    //#[clap(short,long)]
-    //verbose: Option<bool>
+    /// Force computation of hashes even if hash pattern fails or is omitted
+    #[clap(short, long, action)]
+    force: bool,
+    #[clap(short, long, action)]
+    verbose: bool,
 }
 
 fn main() {
     let args = Arguments::parse();
 
     // Recursively enumerate directory
-    let root_path = match canonicalize(Path::new(&args.directory)) {
-        Ok(v) => v,
-        Err(_e) => panic!("[-] Could not canonicalize the path '{}'", args.directory),
-    };
+    let root_path = canonicalize(Path::new(&args.directory)).unwrap_or_else(|_| {
+        println!("[-] Could not canonicalize the path '{}'", args.directory);
+        process::exit(1);
+    });
 
-    let all_files = recursive_dir(&root_path).unwrap();
+    let all_files = recursive_dir(&root_path).unwrap_or_else(|_| {
+        println!("[!] Unable to walk directory {}", root_path.display());
+        process::exit(1);
+    });
 
-    let hashfile_pattern = args.pattern.unwrap_or("*".to_string());
-    let hash_regex = match Regex::new(&hashfile_pattern) {
-        Ok(v) => v,
-        Err(_e) => panic!("[-] Invalid regular expression '{}'", hashfile_pattern),
-    };
+    let hashfile_pattern = args.pattern.unwrap_or("NO_VALID_PATTERN".to_string());
+    let hash_regex = Regex::new(&hashfile_pattern).unwrap_or_else(|_| {
+        println!("[-] Invalid regular expression '{}'", hashfile_pattern);
+        process::exit(1);
+    });
 
     let (hashfiles, mut checked_files): (Vec<FileData>, Vec<FileData>) =
         all_files.into_iter().partition(|f| {
-            let str_path = match f.path.file_name() {
-                Some(v) => v,
-                None => panic!("[-] Failed to retrieve file name from path object"),
-            };
+            let str_path = f.path.file_name().unwrap_or_else(|| {
+                println!("[-] Failed to retrieve file name from path object");
+                process::exit(1);
+            });
             hash_regex.is_match(str_path.to_str().unwrap())
         });
 
     // Read hashfile(s)
     let expected_hashes = match load_hashes(&hashfiles, &root_path) {
         Ok(v) => v,
-        Err(_e) => panic!("[!] No hashes available: {}", _e),
+        Err(_e) => {
+            if args.force {
+                println!("[!*] No hashes available: {}", _e);
+                HashMap::<PathBuf, String>::new()
+            } else {
+                println!("[!*] No hashes available: {}", _e);
+                process::exit(1);
+            }
+        }
     };
 
     // load expected hash value into each checked_files entry
@@ -74,13 +87,16 @@ fn main() {
     }
     let num_threads = match available_parallelism() {
         Ok(v) => v.get(),
-        Err(_e) => panic!("Couldn't get number of threads"),
+        Err(_e) => {
+            println!("[-] Couldn't get number of threads '{}'", hashfile_pattern);
+            process::exit(1);
+        }
     };
 
     let pool = ThreadPool::new(num_threads);
     for task in checked_files {
         pool.execute(move || {
-            perform_hash(task, args.algorithm).unwrap(); // don't like this
+            perform_hash(task, args.algorithm, args.force, args.verbose).unwrap();
         });
     }
 
