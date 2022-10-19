@@ -39,10 +39,29 @@ fn main() {
     let args = Arguments::parse();
 
     // Recursively enumerate directory
-    let root_path = fs::canonicalize(Path::new(&args.directory)).unwrap_or_else(|_| {
-        println!("[-] Could not canonicalize the path '{}'", args.directory);
-        process::exit(1);
-    });
+    //let root_path = fs::canonicalize(Path::new(&args.directory)).unwrap_or_else(|_| {
+    //    println!("[-] Could not canonicalize the path '{}'", args.directory);
+    //    process::exit(1);
+    //});
+
+    let root_path: PathBuf = match fs::canonicalize(Path::new(&args.directory)) {
+        Ok(v) => {
+            // fs::canonicalize checks for existence, now we check for directory
+            if !v.is_dir() {
+                println!("[-] Path '{}' is not a valid directory", v.display());
+                process::exit(1);
+            } else {
+                v
+            }
+        }
+        Err(_e) => {
+            println!(
+                "[-] ERROR ({:?}) : Could not canonicalize the path '{}'",
+                _e, args.directory
+            );
+            process::exit(1);
+        }
+    };
 
     println!("[+] Checking files in '{}'", root_path.display());
 
