@@ -76,7 +76,7 @@ pub fn recursive_dir(abs_root_path: &Path) -> Result<Vec<FileData>, String> {
 }*/
 
 /// Loads the expected hashes for a directory from a hashfile,
-/// expects the file format to be "<hex string> <relative file path>"
+/// expects the file format to be "[hex string] [relative file path]"
 pub fn load_hashes(
     hashfiles: &Vec<FileData>,
     abs_root_path: &Path,
@@ -90,7 +90,7 @@ pub fn load_hashes(
             Ok(v) => v,
             Err(_e) => {
                 println!(
-                    "[!] ERROR {} : Hashfile '{}' cannot be opened",
+                    "[!] ERROR {} : Hashfile '{}' cannot be opened, trying any others",
                     f.path.display(),
                     _e
                 );
@@ -120,10 +120,15 @@ pub fn load_hashes(
             let file_path = splitline.next().unwrap();
             let canonical_path = match fs::canonicalize(abs_root_path.join(file_path)) {
                 Ok(v) => v,
-                Err(_e) => return Err(format!("Could not canonicalize the path '{}'", file_path)),
+                Err(_e) => {
+                    return Err(format!(
+                        "[!] Could not canonicalize the path '{}'",
+                        file_path
+                    ))
+                }
             };
             if !canonical_path.exists() {
-                println!("File '{:?} cannot be found", canonical_path);
+                println!("[!] File '{:?} cannot be found", canonical_path);
                 continue;
             }
             hash_vec.insert(canonical_path, hashval.to_string());
@@ -186,10 +191,7 @@ pub fn perform_hash(
     force: bool,
     verbose: bool,
 ) -> Result<bool, String> {
-    let actual_hash = match hash_file(&fdata.path, alg) {
-        Ok(v) => v,
-        Err(_e) => return Err(format!("Read failure: {}", _e)),
-    };
+    let actual_hash = hash_file(&fdata.path, alg)?;
 
     // Compute checksum and don't check expected vs actual
     if force {

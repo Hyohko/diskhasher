@@ -1,10 +1,7 @@
 use {
-    clap::Parser, diskhasher::*, regex::Regex, std::collections::HashMap, std::fs::canonicalize,
-    std::path::Path, std::path::PathBuf, std::process, std::thread::available_parallelism,
-    threadpool::ThreadPool,
+    clap::Parser, diskhasher::*, regex::Regex, std::collections::HashMap, std::fs, std::path::Path,
+    std::path::PathBuf, std::process, std::thread, threadpool::ThreadPool,
 };
-
-// CLI stuff
 
 #[derive(Parser)]
 #[clap(
@@ -23,25 +20,31 @@ struct Arguments {
     /// Regex pattern used to identify hashfiles
     #[clap(short, long)]
     pattern: Option<String>,
-    //#[clap(short,long)]
-    //logfile: Option<String>,
-    //#[clap(short,long)]
-    //success_log: Option<bool>,
     /// Force computation of hashes even if hash pattern fails or is omitted
     #[clap(short, long, action)]
     force: bool,
+    /// Print all results to stdout
     #[clap(short, long, action)]
     verbose: bool,
 }
+
+/*
+//#[clap(short,long)]
+//logfile: Option<String>,
+//#[clap(short,long)]
+//success_log: Option<bool>,
+*/
 
 fn main() {
     let args = Arguments::parse();
 
     // Recursively enumerate directory
-    let root_path = canonicalize(Path::new(&args.directory)).unwrap_or_else(|_| {
+    let root_path = fs::canonicalize(Path::new(&args.directory)).unwrap_or_else(|_| {
         println!("[-] Could not canonicalize the path '{}'", args.directory);
         process::exit(1);
     });
+
+    println!("[+] Checking files in '{}'", root_path.display());
 
     let all_files = recursive_dir(&root_path).unwrap_or_else(|_| {
         println!("[!] Unable to walk directory {}", root_path.display());
@@ -85,7 +88,7 @@ fn main() {
         }
         ck.expected_hash = expected_hashes.get(&ck.path).unwrap().to_string();
     }
-    let num_threads = match available_parallelism() {
+    let num_threads = match thread::available_parallelism() {
         Ok(v) => v.get(),
         Err(_e) => {
             println!("[-] Couldn't get number of threads '{}'", hashfile_pattern);
@@ -102,6 +105,7 @@ fn main() {
 
     // Wait for all threads to finish
     pool.join();
+    println!("[+] Done");
 }
 
 /*
