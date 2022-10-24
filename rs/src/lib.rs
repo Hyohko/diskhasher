@@ -43,6 +43,7 @@ impl Display for HashAlg {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
 /// Recursively enumerates an absolute (canonicalized) path,
 /// returns Option<Vec<FileData>>, sorted smallest file to largest
 pub fn recursive_dir(abs_root_path: &Path) -> Result<Vec<FileData>, String> {
@@ -68,71 +69,111 @@ pub fn recursive_dir(abs_root_path: &Path) -> Result<Vec<FileData>, String> {
     Ok(file_vec)
 }
 
-/*pub fn partition_files(all_files: &Vec<FileData>, hash_regex: Regex) -> (Vec<FileData>, Vec<FileData>) {
-    let (hashfiles, checked_files) : (Vec<FileData>, Vec<FileData>) = all_files
-        .into_iter()
-        .partition( |f| hash_regex.is_match(f.path.file_name().unwrap().to_str().unwrap()) );
-    (hashfiles, checked_files)
-}*/
+////////////////////////////////////////////////////////////////////////////////////////
+fn hash_hexpattern() -> Regex {
+    const STR_REGEX: &str = concat!(
+        r"([[:xdigit:]]{32})|", // MD5
+        r"([[:xdigit:]]{48})|", // SHA1
+        r"([[:xdigit:]]{56})|", // SHA224
+        r"([[:xdigit:]]{64})|", // SHA256
+        r"([[:xdigit:]]{96})|", // SHA384
+        r"([[:xdigit:]]{128})", // SHA512
+    );
+    // error checking omitted b/c we've already validated this
+    // regex string as correct
+    Regex::new(&STR_REGEX).unwrap()
+}
 
-/// Loads the expected hashes for a directory from a hashfile,
-/// expects the file format to be "[hex string] [relative file path]"
-pub fn load_hashes(
-    hashfiles: &Vec<FileData>,
-    abs_root_path: &Path,
-) -> Result<HashMap<PathBuf, String>, String> {
-    let mut hash_vec = HashMap::new();
-    let hex_pattern =
-        Regex::new(r"([[:xdigit:]]{32})|([[:xdigit:]]{48})|([[:xdigit:]]{64})").unwrap();
+////////////////////////////////////////////////////////////////////////////////////////
+fn split_hashfile_line(
+    newline: &String,
+    hashpath: &PathBuf,
+    regex_pattern: &Regex,
+) -> Result<(PathBuf, String), String> {
+    let mut splitline = newline.split(" ");
+    let hashval = splitline.next().unwrap();
+    // check first bit for valid hex string
+    if !regex_pattern.is_match(hashval) {
+        // Not valid hex string, continue
+        return Err("[!] Line does not start with a valid hex string".to_string());
+    }
+    // canonicalize path by joining, then check for existence
+    splitline.next();
+    let file_path = splitline.next().unwrap();
+    let canonical_path = match fs::canonicalize(hashpath.join(file_path)) {
+        Ok(v) => v,
+        Err(_e) => {
+            return Err(format!(
+                "[!] Could not canonicalize the path '{}'",
+                file_path
+            ))
+        }
+    };
+    if !canonical_path.exists() {
+        return Err(format!("[!] File '{:?} cannot be found", canonical_path));
+    }
+    Ok((canonical_path, hashval.to_string()))
+}
 
-    for f in hashfiles {
-        let file = match File::open(&f.path) {
+////////////////////////////////////////////////////////////////////////////////////////
+/// Load hashes from single hash file
+/// Takes Regex as argument to avoid repeated computation of it
+fn load_hashes_single(
+    path: &PathBuf,
+    hashmap: &mut HashMap<PathBuf, String>,
+    regex_pattern: &Regex,
+) -> Result<(), String> {
+    // get the directory name of the hashfile (should already be in canonical form)
+    let mut hashpath = path.clone();
+    hashpath.pop();
+
+    // Open file
+    let file = match File::open(path) {
+        Ok(v) => v,
+        Err(_e) => {
+            return Err(format!(
+                "[!] ERROR {} : Hashfile '{}' cannot be opened, trying any others",
+                path.display(),
+                _e
+            ))
+        }
+    };
+
+    // Read file
+    let reader = BufReader::new(file);
+    for line in reader.lines() {
+        let newline: String = match line {
             Ok(v) => v,
             Err(_e) => {
-                println!(
-                    "[!] ERROR {} : Hashfile '{}' cannot be opened, trying any others",
-                    f.path.display(),
+                return Err(format!(
+                    "[!] ERROR {} : Line from file '{}' cannot be read",
+                    path.display(),
                     _e
-                );
-                continue;
+                ))
             }
         };
-        let reader = BufReader::new(file);
-        for line in reader.lines() {
-            let newline = match line {
+
+        let (canonical_path, hashval) =
+            match split_hashfile_line(&newline, &hashpath, regex_pattern) {
                 Ok(v) => v,
-                Err(_e) => {
-                    return Err(format!(
-                        "[!] ERROR {} : Line from file '{}' cannot be read",
-                        f.path.display(),
-                        _e
-                    ))
-                }
+                Err(_e) => continue, //return Err(_e),
             };
-            let mut splitline = newline.split(" ");
-            let hashval = splitline.next().unwrap();
-            // check first bit for valid hex string
-            if !hex_pattern.is_match(hashval) {
-                continue;
-            }
-            // canonicalize path by joining, then check for existence
-            splitline.next();
-            let file_path = splitline.next().unwrap();
-            let canonical_path = match fs::canonicalize(abs_root_path.join(file_path)) {
-                Ok(v) => v,
-                Err(_e) => {
-                    return Err(format!(
-                        "[!] Could not canonicalize the path '{}'",
-                        file_path
-                    ))
-                }
-            };
-            if !canonical_path.exists() {
-                println!("[!] File '{:?} cannot be found", canonical_path);
-                continue;
-            }
-            hash_vec.insert(canonical_path, hashval.to_string());
-        }
+        hashmap.insert(canonical_path, hashval);
+    }
+    Ok(())
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+/// Loads the expected hashes for a directory from a hashfile,
+/// expects the file format to be "[hex string] [relative file path]"
+pub fn load_hashes(hashfiles: &Vec<FileData>) -> Result<HashMap<PathBuf, String>, String> {
+    let mut hash_vec: HashMap<PathBuf, String> = HashMap::new();
+    let regex_pattern = hash_hexpattern();
+
+    for f in hashfiles {
+        // TODO - error handling case. Normally, just continue through all
+        // hashfiles
+        let _e = load_hashes_single(&f.path, &mut hash_vec, &regex_pattern);
     }
 
     if hash_vec.len() == 0 {
@@ -143,6 +184,7 @@ pub fn load_hashes(
 
 // use md5;
 
+////////////////////////////////////////////////////////////////////////////////////////
 // You can use something like this when parsing user input, CLI arguments, etc.
 // DynDigest needs to be boxed here, since function return should be sized.
 fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
@@ -157,6 +199,8 @@ fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
+/// Compute the hash of a given file
 fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, String> {
     // file existence check performed earlier, though we could put one here for completeness
     let mut hasher = select_hasher(alg);
@@ -184,6 +228,7 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
 /// Thread function that opens file, hashes, and compares with expected hash
 pub fn perform_hash(
     fdata: FileData,
@@ -219,3 +264,10 @@ pub fn perform_hash(
     }
     Ok(success)
 }
+
+/*pub fn partition_files(all_files: &Vec<FileData>, hash_regex: Regex) -> (Vec<FileData>, Vec<FileData>) {
+    let (hashfiles, checked_files) : (Vec<FileData>, Vec<FileData>) = all_files
+        .into_iter()
+        .partition( |f| hash_regex.is_match(f.path.file_name().unwrap().to_str().unwrap()) );
+    (hashfiles, checked_files)
+}*/
