@@ -9,11 +9,13 @@ use {
     std::fs::File,
     std::io::{BufRead, BufReader, Read},
     std::path::{Path, PathBuf},
+    std::thread,
+    threadpool::ThreadPool,
     walkdir::WalkDir,
 };
 
 // TODO - remove public fields
-#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct FileData {
     pub size: u64,
     pub path: PathBuf,
@@ -44,27 +46,47 @@ impl Display for HashAlg {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
+/// Create thread pool with one thread per processor
+pub fn create_threadpool() -> Result<ThreadPool, String> {
+    let num_threads = match thread::available_parallelism() {
+        Ok(v) => v.get(),
+        Err(_e) => {
+            return Err(format!("{}: Couldn't get number of available threads", _e));
+        }
+    };
+    Ok(ThreadPool::new(num_threads))
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
 /// Recursively enumerates an absolute (canonicalized) path,
-/// returns Option<Vec<FileData>>, sorted smallest file to largest
+/// returns Result<Vec<FileData>, String>, sorted smallest file to largest
 pub fn recursive_dir(abs_root_path: &Path) -> Result<Vec<FileData>, String> {
     let mut file_vec = Vec::<FileData>::new();
+    let mut files_added: i32 = 0;
     for entry in WalkDir::new(abs_root_path)
         .into_iter()
         .filter_map(|e| e.ok())
     {
         if entry.file_type().is_file() {
-            let size: u64 = match entry.path().metadata() {
+            let path = entry.path();
+            let size: u64 = match path.metadata() {
                 Ok(f) => f.len(),
                 Err(_e) => continue,
             };
+            //println!("[*] File {}", path.display());
             file_vec.push(FileData {
                 size,
-                path: entry.path().to_path_buf(),
+                path: path.to_path_buf(),
                 expected_hash: "".to_string(),
             });
+            files_added += 1;
+            if files_added % 500 == 0 {
+                println!("[*] {} files to be hashed", files_added);
+            }
         }
     }
     // Sort vector by file size, smallest first
+    println!("[*] Sorting files by size");
     file_vec.sort_by(|a, b| a.size.cmp(&b.size));
     Ok(file_vec)
 }
@@ -85,32 +107,35 @@ fn hash_hexpattern() -> Regex {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
+/// From the hashfile, BufReader will return one line at a time. Check if line
+/// is in the format <HEX STRING> <FILE PATH>. If Ok(), then canonicalize
+/// the file path (if the file actually exists) and return the path and hex string
 fn split_hashfile_line(
     newline: &String,
     hashpath: &PathBuf,
     regex_pattern: &Regex,
-) -> Result<(PathBuf, String), String> {
-    let mut splitline = newline.split(" ");
-    let hashval = splitline.next().unwrap();
-    // check first bit for valid hex string
+) -> Result<(String, PathBuf), String> {
+    let splitline: Vec<&str> = newline.split_whitespace().collect();
+    if splitline.len() < 2 {
+        return Err(format!("Line does not have enough elements: {}", newline));
+    }
+    let hashval: &str = splitline[0];
     if !regex_pattern.is_match(hashval) {
-        // Not valid hex string, continue
-        return Err("[!] Line does not start with a valid hex string".to_string());
+        return Err("Line does not start with a valid hex string".to_string());
     }
     // canonicalize path by joining, then check for existence
-    splitline.next();
-    let file_path = splitline.next().unwrap();
-    let canonical_result = fs::canonicalize(hashpath.join(file_path)).or_else(|err| {
+    let file_path = splitline[1..].join(" ");
+    let canonical_result = fs::canonicalize(hashpath.join(&file_path)).or_else(|err| {
         return Err(format!(
-            "[!] ERROR {}: Could not canonicalize the path '{}'",
+            "{}: Could not canonicalize the path '{}'",
             err, file_path
         ));
     });
     let canonical_path = canonical_result.unwrap();
     if !canonical_path.exists() {
-        return Err(format!("[!] File '{:?} cannot be found", canonical_path));
+        return Err(format!("File '{:?} cannot be found", canonical_path));
     }
-    Ok((canonical_path, hashval.to_string()))
+    Ok((hashval.to_string(), canonical_path))
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -128,7 +153,7 @@ fn load_hashes_single(
     // Open file
     let file = File::open(path).or_else(|err| {
         return Err(format!(
-            "[!] ERROR {} : Hashfile '{}' cannot be opened, trying any others",
+            "{} : Hashfile '{}' cannot be opened, trying any others",
             path.display(),
             err
         ));
@@ -139,13 +164,13 @@ fn load_hashes_single(
     for line in reader.lines() {
         let newline = line.or_else(|err| {
             return Err(format!(
-                "[!] ERROR {} : Line from file '{}' cannot be read",
+                "{} : Line from file '{}' cannot be read",
                 path.display(),
                 err
             ));
         });
 
-        let (canonical_path, hashval) =
+        let (hashval, canonical_path) =
             match split_hashfile_line(&newline.unwrap(), &hashpath, regex_pattern) {
                 Ok(v) => v,
                 Err(_e) => continue, //return Err(_e),
@@ -174,14 +199,14 @@ pub fn load_hashes(hashfiles: &Vec<FileData>) -> Result<HashMap<PathBuf, String>
     Ok(hash_vec)
 }
 
-// use md5;
-
 ////////////////////////////////////////////////////////////////////////////////////////
 // You can use something like this when parsing user input, CLI arguments, etc.
 // DynDigest needs to be boxed here, since function return should be sized.
+// TODO - create a version of MD5 that implements the new(), update(), and finalize()
+// interfaces
 fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
     match alg {
-        // HashAlg::SHA1 => Box::new(md5::Md5::default()),
+        // HashAlg::MD5 => Box::new(md5::Md5::default()),
         HashAlg::SHA1 => Box::new(sha1::Sha1::default()),
         HashAlg::SHA224 => Box::new(sha2::Sha224::default()),
         HashAlg::SHA256 => Box::new(sha2::Sha256::default()),
@@ -201,13 +226,13 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, String> {
     const BUFSIZE: usize = 1024 * 1024 * 2; // 2 MB
     let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
     let file_result = File::open(path).or_else(|err| {
-        return Err(format!("[-] ERROR {}: Unable to open file", err));
+        return Err(format!("{}: Unable to open file", err));
     });
 
     loop {
         let mut file = file_result.as_ref().unwrap();
         let read_result = file.read(&mut buffer[..BUFSIZE]).or_else(|err| {
-            return Err(format!("[-] ERROR {}: Read failure", err));
+            return Err(format!("{}: Read failure", err));
         });
         let read_count = read_result.unwrap();
         hasher.update(&buffer[..read_count]);
@@ -228,8 +253,6 @@ pub fn perform_hash(
     verbose: bool,
 ) -> Result<bool, String> {
     let actual_hash = hash_file(&fdata.path, alg)?;
-
-    // Compute checksum and don't check expected vs actual
     if force {
         println!(
             "[*] Checksum value : {:?}\n\tHash         : {:?}",

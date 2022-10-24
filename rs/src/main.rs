@@ -1,6 +1,6 @@
 use {
     clap::Parser, diskhasher::*, regex::Regex, std::collections::HashMap, std::fs, std::path::Path,
-    std::path::PathBuf, std::process, std::thread, threadpool::ThreadPool,
+    std::path::PathBuf, std::process,
 };
 
 #[derive(Parser)]
@@ -36,7 +36,15 @@ struct Arguments {
 */
 
 fn main() {
+    const EMPTY_STRING: String = String::new();
+    let pool = create_threadpool().unwrap_or_else(|err| {
+        println!("[-] ThreadPool error: {}", err);
+        process::exit(1);
+    });
+
     let args = Arguments::parse();
+
+    println!("[+] Using the {:?} algorithm", args.algorithm);
 
     // Recursively enumerate directory
     let root_path = fs::canonicalize(Path::new(&args.directory)).unwrap_or_else(|_| {
@@ -51,20 +59,27 @@ fn main() {
         process::exit(1);
     }
 
-    println!("[+] Checking files in '{}'", root_path.display());
-
-    let all_files = recursive_dir(&root_path).unwrap_or_else(|_| {
-        println!("[!] Unable to walk directory {}", root_path.display());
-        process::exit(1);
-    });
-
     let hashfile_pattern = args.pattern.unwrap_or("NO_VALID_PATTERN".to_string());
+    println!(
+        "[+] Validating hashfile regular expression {:?}",
+        hashfile_pattern
+    );
     let hash_regex = Regex::new(&hashfile_pattern).unwrap_or_else(|_| {
         println!("[-] Invalid regular expression '{}'", hashfile_pattern);
         process::exit(1);
     });
 
-    let (hashfiles, mut checked_files): (Vec<FileData>, Vec<FileData>) =
+    println!(
+        "[+] Recursively listing all regular files in '{}'",
+        root_path.display()
+    );
+    let all_files = recursive_dir(&root_path).unwrap_or_else(|_| {
+        println!("[!] Unable to walk directory {}", root_path.display());
+        process::exit(1);
+    });
+
+    println!("[+] Identifying hashfiles");
+    let (hashfiles, checked_files): (Vec<FileData>, Vec<FileData>) =
         all_files.into_iter().partition(|f| {
             let str_path = f.path.file_name().unwrap_or_else(|| {
                 println!("[-] Failed to retrieve file name from path object");
@@ -73,12 +88,13 @@ fn main() {
             hash_regex.is_match(str_path.to_str().unwrap())
         });
 
-    // Read hashfile(s)
+    println!("[+] Loading hashfiles from {:?}", hashfiles);
     let expected_hashes = match load_hashes(&hashfiles) {
         Ok(v) => v,
         Err(_e) => {
             if args.force {
                 println!("[!*] No hashes available: {}", _e);
+                println!("[*] --force called, computing hashes anyway");
                 HashMap::<PathBuf, String>::new()
             } else {
                 println!("[!*] No hashes available: {}", _e);
@@ -88,25 +104,27 @@ fn main() {
     };
 
     // load expected hash value into each checked_files entry
-    for ck in &mut checked_files {
+    // since checked_files is in file-size order (smallest to largest)
+    // this function should process the very smallest files first
+    println!(
+        "[+] Checking hashes - spinning up {} worker threads",
+        pool.max_count()
+    );
+    for ck in checked_files {
         if !&expected_hashes.contains_key(&ck.path) {
-            println!("[!] {:?} => No hash found", &ck.path);
-            continue;
+            if !args.force {
+                println!("[!] {:?} => No hash found", &ck.path);
+                continue;
+            }
         }
-        ck.expected_hash = expected_hashes.get(&ck.path).unwrap().to_string();
-    }
-    let num_threads = match thread::available_parallelism() {
-        Ok(v) => v.get(),
-        Err(_e) => {
-            println!("[-] Couldn't get number of threads '{}'", hashfile_pattern);
-            process::exit(1);
-        }
-    };
+        let mut expected_fdata: FileData = ck.clone();
+        expected_fdata.expected_hash = expected_hashes
+            .get(&ck.path)
+            .unwrap_or(&EMPTY_STRING)
+            .to_string();
 
-    let pool = ThreadPool::new(num_threads);
-    for task in checked_files {
         pool.execute(move || {
-            perform_hash(task, args.algorithm, args.force, args.verbose).unwrap();
+            perform_hash(expected_fdata, args.algorithm, args.force, args.verbose).unwrap();
         });
     }
 
