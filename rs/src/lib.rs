@@ -106,6 +106,30 @@ fn hash_hexpattern() -> Regex {
     Regex::new(&STR_REGEX).unwrap()
 }
 
+fn canonicalize_split_filepath(
+    splitline: &Vec<&str>,
+    hashpath: &PathBuf,
+) -> Result<PathBuf, String> {
+    let file_path = splitline[1..].join(" ");
+
+    let mut file_path_buf = Path::new(&file_path).to_path_buf();
+    if file_path_buf.is_absolute() {
+        return Ok(file_path_buf);
+    }
+    if !file_path.starts_with("./") {
+        let new_file_path = format!("{}{}", "./", file_path);
+        file_path_buf = Path::new(&new_file_path).to_path_buf();
+    }
+    file_path_buf = hashpath.join(&file_path_buf);
+    let canonical_result = fs::canonicalize(&file_path_buf).or_else(|err| {
+        return Err(format!(
+            "{}: Could not canonicalize the path '{}'",
+            err, file_path
+        ));
+    });
+    canonical_result
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////
 /// From the hashfile, BufReader will return one line at a time. Check if line
 /// is in the format <HEX STRING> <FILE PATH>. If Ok(), then canonicalize
@@ -123,18 +147,15 @@ fn split_hashfile_line(
     if !regex_pattern.is_match(hashval) {
         return Err("Line does not start with a valid hex string".to_string());
     }
-    // canonicalize path by joining, then check for existence
-    let file_path = splitline[1..].join(" ");
-    let canonical_result = fs::canonicalize(hashpath.join(&file_path)).or_else(|err| {
-        return Err(format!(
-            "{}: Could not canonicalize the path '{}'",
-            err, file_path
-        ));
-    });
-    let canonical_path = canonical_result.unwrap();
-    if !canonical_path.exists() {
-        return Err(format!("File '{:?} cannot be found", canonical_path));
-    }
+
+    let canonical_path = match canonicalize_split_filepath(&splitline, hashpath) {
+        Ok(v) => v,
+        Err(err) => {
+            println!("{}", err);
+            return Err(err);
+        }
+    };
+
     Ok((hashval.to_string(), canonical_path))
 }
 
@@ -161,6 +182,7 @@ fn load_hashes_single(
 
     // Read file
     let reader = BufReader::new(file.unwrap());
+    let mut num_lines: i32 = 0;
     for line in reader.lines() {
         let newline = line.or_else(|err| {
             return Err(format!(
@@ -176,6 +198,10 @@ fn load_hashes_single(
                 Err(_e) => continue, //return Err(_e),
             };
         hashmap.insert(canonical_path, hashval);
+        num_lines += 1;
+        if num_lines % 500 == 0 {
+            println!("[*] {} hashes read from {}", num_lines, path.display());
+        }
     }
     Ok(())
 }
@@ -183,8 +209,12 @@ fn load_hashes_single(
 ////////////////////////////////////////////////////////////////////////////////////////
 /// Loads the expected hashes for a directory from a hashfile,
 /// expects the file format to be "[hex string] [relative file path]"
-pub fn load_hashes(hashfiles: &Vec<FileData>) -> Result<HashMap<PathBuf, String>, String> {
+pub fn load_hashes(
+    hashfiles: &Vec<FileData>,
+    num_checked_files: usize,
+) -> Result<HashMap<PathBuf, String>, String> {
     let mut hash_vec: HashMap<PathBuf, String> = HashMap::new();
+    hash_vec.reserve(num_checked_files);
     let regex_pattern = hash_hexpattern();
 
     for f in hashfiles {

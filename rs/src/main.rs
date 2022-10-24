@@ -88,8 +88,8 @@ fn main() {
             hash_regex.is_match(str_path.to_str().unwrap())
         });
 
-    println!("[+] Loading hashfiles from {:?}", hashfiles);
-    let expected_hashes = match load_hashes(&hashfiles) {
+    println!("[+] Loading expected hashes from {:?}", hashfiles);
+    let expected_hashes = match load_hashes(&hashfiles, checked_files.len()) {
         Ok(v) => v,
         Err(_e) => {
             if args.force {
