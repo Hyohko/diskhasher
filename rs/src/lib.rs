@@ -106,6 +106,7 @@ fn hash_hexpattern() -> Regex {
     Regex::new(&STR_REGEX).unwrap()
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
 fn canonicalize_split_filepath(
     splitline: &Vec<&str>,
     hashpath: &PathBuf,
