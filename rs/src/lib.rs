@@ -100,15 +100,13 @@ fn split_hashfile_line(
     // canonicalize path by joining, then check for existence
     splitline.next();
     let file_path = splitline.next().unwrap();
-    let canonical_path = match fs::canonicalize(hashpath.join(file_path)) {
-        Ok(v) => v,
-        Err(_e) => {
-            return Err(format!(
-                "[!] Could not canonicalize the path '{}'",
-                file_path
-            ))
-        }
-    };
+    let canonical_result = fs::canonicalize(hashpath.join(file_path)).or_else(|err| {
+        return Err(format!(
+            "[!] ERROR {}: Could not canonicalize the path '{}'",
+            err, file_path
+        ));
+    });
+    let canonical_path = canonical_result.unwrap();
     if !canonical_path.exists() {
         return Err(format!("[!] File '{:?} cannot be found", canonical_path));
     }
@@ -128,33 +126,27 @@ fn load_hashes_single(
     hashpath.pop();
 
     // Open file
-    let file = match File::open(path) {
-        Ok(v) => v,
-        Err(_e) => {
-            return Err(format!(
-                "[!] ERROR {} : Hashfile '{}' cannot be opened, trying any others",
-                path.display(),
-                _e
-            ))
-        }
-    };
+    let file = File::open(path).or_else(|err| {
+        return Err(format!(
+            "[!] ERROR {} : Hashfile '{}' cannot be opened, trying any others",
+            path.display(),
+            err
+        ));
+    });
 
     // Read file
-    let reader = BufReader::new(file);
+    let reader = BufReader::new(file.unwrap());
     for line in reader.lines() {
-        let newline: String = match line {
-            Ok(v) => v,
-            Err(_e) => {
-                return Err(format!(
-                    "[!] ERROR {} : Line from file '{}' cannot be read",
-                    path.display(),
-                    _e
-                ))
-            }
-        };
+        let newline = line.or_else(|err| {
+            return Err(format!(
+                "[!] ERROR {} : Line from file '{}' cannot be read",
+                path.display(),
+                err
+            ));
+        });
 
         let (canonical_path, hashval) =
-            match split_hashfile_line(&newline, &hashpath, regex_pattern) {
+            match split_hashfile_line(&newline.unwrap(), &hashpath, regex_pattern) {
                 Ok(v) => v,
                 Err(_e) => continue, //return Err(_e),
             };
@@ -208,18 +200,17 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, String> {
     // open file and read data into heap-based buffer
     const BUFSIZE: usize = 1024 * 1024 * 2; // 2 MB
     let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
-    let mut file = match File::open(path) {
-        Ok(v) => v,
-        Err(_e) => return Err(format!("Unable to open file - Error {}", _e)),
-    };
+    let file_result = File::open(path).or_else(|err| {
+        return Err(format!("[-] ERROR {}: Unable to open file", err));
+    });
 
     loop {
-        let read_count = match file.read(&mut buffer[..BUFSIZE]) {
-            Ok(v) => v,
-            Err(_e) => return Err(format!("Read failure: {}", _e)),
-        };
+        let mut file = file_result.as_ref().unwrap();
+        let read_result = file.read(&mut buffer[..BUFSIZE]).or_else(|err| {
+            return Err(format!("[-] ERROR {}: Read failure", err));
+        });
+        let read_count = read_result.unwrap();
         hasher.update(&buffer[..read_count]);
-
         if read_count < BUFSIZE {
             break;
         }
