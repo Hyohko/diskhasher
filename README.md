@@ -34,10 +34,19 @@ A utility for calculating the checksums of all files on a given disk. If a check
 
 This utility will spin up as many new threads as the processor will support to parallelize the computation of checksums.
 
+The preferred build mode uses the Phusion Holy Build Box to build a cross-platform/"portable" binary. This script will pull down the latest Holy Build Box Docker container and execute the build process inside it. This has the advantage of linking against the oldest possible GLIBC that the HBB supports, and should work on anything later than CentOS 7 / Ubuntu 14.04. Execute the following script, which will automatically get the lastest HBB from the Docker hub:
+
+```bash
+cd /path/to/diskhasher/cpp
+./execute-hbb-build.sh
+
+./diskhasher .....
+```
+
 To build as statically-linked, default Release mode (runs on most NIX systems):
 
 ```bash
-cd /path/to/diskhasher
+cd /path/to/diskhasher/cpp
 make
 
 ./diskhasher .....
@@ -46,7 +55,7 @@ make
 To build for Linux using CMAKE (may not work on all systems):
 
 ```bash
-cd /path/to/diskhasher
+cd /path/to/diskhasher/cpp
 mkdir build
 cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
@@ -58,7 +67,7 @@ make
 To build on Windows requires CMake and the Windows Visual Studio 2019 development kit (just the compilers and libraries), and you'll need to do all this in the Developer Command Prompt for VS2019:
 
 ```cmd
-cd C:\path\to\diskhasher
+cd C:\path\to\diskhasher\cpp
 mkdir build
 cd build
 cmake .. -G "Visual Studio 16 2019"
