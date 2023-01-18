@@ -1,8 +1,34 @@
+/*
+    DISKHASHER v0.1 - 2022 by Hyohko
+
+    ##################################
+    GPLv3 NOTICE AND DISCLAIMER
+    ##################################
+
+    This file is part of DISKHASHER.
+
+    DISKHASHER is free software: you can redistribute it
+    and/or modify it under the terms of the GNU General
+    Public License as published by the Free Software
+    Foundation, either version 3 of the License, or (at
+    your option) any later version.
+
+    DISKHASHER is distributed in the hope that it will
+    be useful, but WITHOUT ANY WARRANTY; without even
+    the implied warranty of MERCHANTABILITY or FITNESS
+    FOR A PARTICULAR PURPOSE. See the GNU General Public
+    License for more details.
+
+    You should have received a copy of the GNU General
+    Public License along with DISKHASHER. If not, see
+    <https://www.gnu.org/licenses/>.
+*/
+
 use {
     clap::ValueEnum,
     digest::DynDigest,
     hex,
-    regex::Regex,
+    // regex::Regex,
     std::collections::HashMap,
     std::fmt::{self, Display, Formatter},
     std::fs,
@@ -92,7 +118,7 @@ pub fn recursive_dir(abs_root_path: &Path) -> Result<Vec<FileData>, String> {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
-fn hash_hexpattern() -> Regex {
+/*fn hash_hexpattern() -> Regex {
     const STR_REGEX: &str = concat!(
         r"([[:xdigit:]]{32})|", // MD5
         r"([[:xdigit:]]{48})|", // SHA1
@@ -104,7 +130,7 @@ fn hash_hexpattern() -> Regex {
     // error checking omitted b/c we've already validated this
     // regex string as correct
     Regex::new(&STR_REGEX).unwrap()
-}
+}*/
 
 ////////////////////////////////////////////////////////////////////////////////////////
 fn canonicalize_split_filepath(
@@ -132,20 +158,38 @@ fn canonicalize_split_filepath(
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
+/// Checks the hashval to see if it is a valid hex string. Used in the case that
+/// we want to slim down the final binary by removing the Regex crate
+fn hexstring_is_valid(hexstring: &str) -> bool {
+    match hexstring.len() {
+        32 | 48 | 56 | 64 | 96 | 128 => {
+            for chr in hexstring.chars() {
+                if !chr.is_ascii_hexdigit() {
+                    return false;
+                }
+            }
+            return true;
+        }
+        _ => return false,
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
 /// From the hashfile, BufReader will return one line at a time. Check if line
 /// is in the format <HEX STRING> <FILE PATH>. If Ok(), then canonicalize
 /// the file path (if the file actually exists) and return the path and hex string
 fn split_hashfile_line(
     newline: &String,
     hashpath: &PathBuf,
-    regex_pattern: &Regex,
+    // regex_pattern: &Regex,
 ) -> Result<(String, PathBuf), String> {
     let splitline: Vec<&str> = newline.split_whitespace().collect();
     if splitline.len() < 2 {
         return Err(format!("Line does not have enough elements: {}", newline));
     }
     let hashval: &str = splitline[0];
-    if !regex_pattern.is_match(hashval) {
+    //if !regex_pattern.is_match(hashval) {
+    if !hexstring_is_valid(hashval) {
         return Err("Line does not start with a valid hex string".to_string());
     }
 
@@ -166,7 +210,7 @@ fn split_hashfile_line(
 fn load_hashes_single(
     path: &PathBuf,
     hashmap: &mut HashMap<PathBuf, String>,
-    regex_pattern: &Regex,
+    // regex_pattern: &Regex,
 ) -> Result<(), String> {
     // get the directory name of the hashfile (should already be in canonical form)
     let mut hashpath = path.clone();
@@ -194,7 +238,7 @@ fn load_hashes_single(
         });
 
         let (hashval, canonical_path) =
-            match split_hashfile_line(&newline.unwrap(), &hashpath, regex_pattern) {
+            match split_hashfile_line(&newline.unwrap(), &hashpath /*regex_pattern*/) {
                 Ok(v) => v,
                 Err(_e) => continue, //return Err(_e),
             };
@@ -216,12 +260,12 @@ pub fn load_hashes(
 ) -> Result<HashMap<PathBuf, String>, String> {
     let mut hash_vec: HashMap<PathBuf, String> = HashMap::new();
     hash_vec.reserve(num_checked_files);
-    let regex_pattern = hash_hexpattern();
+    // let regex_pattern = hash_hexpattern();
 
     for f in hashfiles {
         // TODO - error handling case. Normally, just continue through all
         // hashfiles
-        let _e = load_hashes_single(&f.path, &mut hash_vec, &regex_pattern);
+        let _e = load_hashes_single(&f.path, &mut hash_vec /*&regex_pattern*/);
     }
 
     if hash_vec.len() == 0 {
@@ -230,6 +274,7 @@ pub fn load_hashes(
     Ok(hash_vec)
 }
 
+//use md5::Md5;
 ////////////////////////////////////////////////////////////////////////////////////////
 // You can use something like this when parsing user input, CLI arguments, etc.
 // DynDigest needs to be boxed here, since function return should be sized.
@@ -237,7 +282,7 @@ pub fn load_hashes(
 // interfaces
 fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
     match alg {
-        // HashAlg::MD5 => Box::new(md5::Md5::default()),
+        //HashAlg::MD5 => Box::new(md5::Md5::default()),
         HashAlg::SHA1 => Box::new(sha1::Sha1::default()),
         HashAlg::SHA224 => Box::new(sha2::Sha224::default()),
         HashAlg::SHA256 => Box::new(sha2::Sha256::default()),
