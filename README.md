@@ -34,6 +34,8 @@ A utility for calculating the checksums of all files on a given disk. If a check
 
 This utility will spin up as many new threads as the processor will support to parallelize the computation of checksums.
 
+# C++
+
 The preferred build mode uses the Phusion Holy Build Box to build a cross-platform/"portable" binary. This script will pull down the latest Holy Build Box Docker container and execute the build process inside it. This has the advantage of linking against the oldest possible GLIBC that the HBB supports, and should work on anything later than CentOS 7 / Ubuntu 14.04. Execute the following script, which will automatically get the lastest HBB from the Docker hub:
 
 ```bash
@@ -75,4 +77,13 @@ msbuild .\diskhasher.sln /P:Configuration=Release;Platform=x64
 
 % to run %
 .\Release\diskhasher.exe ....
+```
+
+# Rust
+
+This experimental build uses the standard Cargo system for builds and package maintenance. For example, the Release build:
+
+```bash
+cd /path/to/diskhasher/rs
+cargo build --release
 ```
