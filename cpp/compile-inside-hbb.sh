@@ -12,3 +12,5 @@ cd $BUILD_DIR
 
 make
 
+rm $BUILD_DIR -rf
+
