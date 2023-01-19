@@ -76,6 +76,7 @@ set(NIX_SOURCES
 
 if(IS_LINUX)
     add_executable(${CMAKE_PROJECT_NAME} ${SOURCES} ${NIX_SOURCES})
+    target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
     message(STATUS "Linking for Linux")
     find_package(Threads REQUIRED)
     target_link_libraries(${CMAKE_PROJECT_NAME} Threads::Threads)
@@ -83,6 +84,7 @@ endif(IS_LINUX)
 
 if(IS_WINDOWS)
     add_executable(${CMAKE_PROJECT_NAME} ${SOURCES})
+    target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
     message(STATUS "Linking for Windows")
     target_link_libraries(${CMAKE_PROJECT_NAME} Bcrypt)
 endif(IS_WINDOWS)

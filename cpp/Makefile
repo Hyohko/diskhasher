@@ -25,11 +25,12 @@
 # Parallel compile
 MAKEFLAGS += -j8
 
+INC=-I./include
 CC := gcc
 CCX := g++
 COMMONFLAGS := -g -Ofast -Wall -Wextra -Wconversion \
 	-fpic -ffunction-sections -fdata-sections \
-	-flto -D_GLIBCXX_PARALLEL -march=native
+	-flto -D_GLIBCXX_PARALLEL -march=native $(INC)
 CFLAGS := $(COMMONFLAGS) -frename-registers -fopenmp
 CXXFINALFLAGS := -static-libgcc -static-libstdc++
 CXXFLAGS = $(CFLAGS) -std=c++2a
@@ -57,6 +58,7 @@ clang: CXXFINALFLAGS:=-fopenmp=libomp
 clang: $(MAIN)
 	@echo $(MAIN) requires libomp - install using "sudo apt install libomp-dev"
 	@echo Final binary is not static - most likely must compile on target machine
+	@$(MAKE)
 
 $(MAIN): $(OBJS) $(OBJS_CPP)
 	$(CCX) $(CXXFLAGS) $(CXXFINALFLAGS) $(INCLUDES) $(LDFLAGS) $(LIBS) \
