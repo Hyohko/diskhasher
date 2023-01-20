@@ -29,6 +29,11 @@ ACTIVATE=/hbb_exe/activate-exec
 MOUNT=/io
 RUNSCRIPT=$MOUNT/compile-inside-hbb.sh
 
+if [ ! $(which docker) ]; then
+    echo "This script requires docker"
+    exit
+fi
+
 if [ ! "$(docker image list | grep $HBB_NAME)" ]; then
     echo "Holy Build Box 64 not found, pulling from the Internet"
     sudo docker pull $HBB_NAME:latest
