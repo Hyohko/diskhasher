@@ -43,6 +43,7 @@
 #include "common.h"
 #include "hash.h"
 #include "cxxopts.hpp"
+#include <spdlog/spdlog.h>
 
 // Helper struct for pre-computing the file sizes, greatly speeding up
 // std::sort's lambda function
@@ -70,7 +71,7 @@ static bool s_ctrl_c = false;
 #ifdef _WIN32
 BOOL WINAPI ctrl_c_handler(DWORD signum)
 {
-    std::cout << "[*] Terminating hashing threads, closing down gracefully..." << std::endl;
+    spdlog::warn("[*] Terminating hashing threads, closing down gracefully...");
     stop_tasks();
     s_ctrl_c = true;
     return TRUE;
@@ -78,7 +79,7 @@ BOOL WINAPI ctrl_c_handler(DWORD signum)
 #else
 void ctrl_c_handler([[maybe_unused]] int signum)
 {
-    std::cout << "[*] Terminating hashing threads, closing down gracefully..." << std::endl;
+    spdlog::warn("[*] Terminating hashing threads, closing down gracefully...");
     stop_tasks();
     s_ctrl_c = true;
 }
@@ -119,7 +120,7 @@ void print_usage()
 */
 std::vector<pathstruct> parse_hashfile(const fs::path& filepath)
 {
-	std::cout << "[+] Parsing hashfile " << filepath << std::endl;
+	spdlog::info("[+] Parsing hashfile {}", filepath.string());
     std::ifstream infile(filepath);
     std::vector<pathstruct> hashlist;
     std::string line;
@@ -129,7 +130,7 @@ std::vector<pathstruct> parse_hashfile(const fs::path& filepath)
         std::istringstream iss(line);
         std::string hash, filename, word;
         if (!(iss >> hash >> filename)) {
-			std::cerr << "[-] Could not parse line" << std::endl;
+			spdlog::error("[-] Could not parse line");
 			break;
 		} // error
 
@@ -146,7 +147,7 @@ std::vector<pathstruct> parse_hashfile(const fs::path& filepath)
         fs::path target = filepath.parent_path() / filename;
         if(!fs::exists(target))
         {
-            std::cerr << "[!] File " << target << " does not exist on disk" << std::endl;
+            spdlog::error("[!] File {} does not exist on disk", target.string());
         }
         else
         {
@@ -196,23 +197,23 @@ fs::path get_root_dir(const cxxopts::ParseResult& result)
         root_path = result["d"].as<std::string>();
         if( !fs::exists(root_path) )
         {
-            std::cerr << "[!] Path '" << root_path << "' does not exist" << std::endl;
+            spdlog::critical("[!] Path '{}' does not exist", root_path.string());
             exit(1);
         }
         if(!fs::is_directory(root_path))
         {
-            std::cerr << "[!] Path '" << root_path << "' is not a directory" << std::endl;
+            spdlog::critical("[!] Path '{}' is not a directory", root_path.string());
             exit(1);
         }
         if( root_path.is_relative() )
         {
             root_path = fs::absolute(root_path);
         }
-        std::cout << "[+] Hashing " << root_path << std::endl;
+        spdlog::info("[+] Hashing {}", root_path.string());
     }
     else
     {
-        std::cerr << "[!] Path required (-d || --root-dir)" << std::endl;
+        spdlog::error("[!] Path required (-d || --root-dir)");
         exit(1);
     }
     return root_path;
@@ -239,15 +240,15 @@ HASHALG get_hashalg(const cxxopts::ParseResult& result)
                        [](unsigned char c){ return std::tolower(c); });
         if(!algs.contains(algstr))
         {
-            std::cerr << "[!] Must select 'md5', 'sha1', or 'sha256'" << std::endl;
+            spdlog::error("[!] Must select 'md5', 'sha1', or 'sha256'");
             exit(1);
         }
-        std::cout << "[+] Using algorithm '" << algstr << "'" << std::endl;
+        spdlog::info("[+] Using algorithm '{}'", algstr);
     }
     else
     {
-            std::cerr << "[!] algorithm required (-a || --algorithm)" << std::endl;
-            std::cerr << "[!] Must select 'md5', 'sha1', or 'sha256'" << std::endl;
+            spdlog::error("[!] algorithm required (-a || --algorithm)");
+            spdlog::error("[!] Must select 'md5', 'sha1', or 'sha256'");
             exit(1);
     }
     return algs[algstr];
@@ -267,13 +268,13 @@ strvector get_checksum_files(const cxxopts::ParseResult& result)
         checksum_files = result["f"].as<strvector>();
         for(const std::string& s: checksum_files)
         {
-            std::cout << "[*] Checksum file pattern '" << s << "'" << std::endl;
+            spdlog::info("[*] Checksum file pattern '{}'", s);
         }
     }
     else if(result.count("x") || result.count("force"))
     {
         // force compute-only
-        std::cout << "[*] Calculating hashes without validating" << std::endl;
+        spdlog::info("[*] Calculating hashes without validating");
         checksum_files.emplace_back(COMPUTE_ONLY);
     }
     else
@@ -293,7 +294,7 @@ strvector get_checksum_files(const cxxopts::ParseResult& result)
             }
             else if ((response.rfind("N", 0) == 0) || (response.rfind("n", 0) == 0))
             {
-                std::cerr << "[!] Exiting..." << std::endl;
+                spdlog::error("[!] Exiting...");
                 exit(0);
             }
             std::cout << "    Invalid - Please enter 'yes' or 'no' to continue (Y/N) > ";
@@ -315,12 +316,12 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
     fs::path root_dir = get_root_dir(result);
     strvector checksum_files = get_checksum_files(result);
 
-    std::cout << "[+] Recursively walking " << root_dir << std::endl;
+    spdlog::info("[+] Recursively walking {}", root_dir.string());
     pathvector all_files = recursive_dirwalk(root_dir);
 
     if(checksum_files.size() == 1 && checksum_files[0] == COMPUTE_ONLY)
     {
-        std::cout << "[!] No checksum files given - no log files will be generated" << std::endl;
+        spdlog::warn("[!] No checksum files given - no log files will be generated");
         std::for_each(all_files.begin(), all_files.end(), [&](const auto& path)
         {
             all_hashes.emplace_back(path, IGNORE_HASH_CHECK);
@@ -345,17 +346,17 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
     if(all_hashes.empty())
     {
         // Nothing to do
-        std::cerr << "[-] No hashes found, check your 'hashfile-name' parameter" << std::endl;
+        spdlog::error("[-] No hashes found, check your 'hashfile-name' parameter");
         print_usage();
         exit(1);
     }
 
-    std::cout << "[*] Sorting files by file size, smallest first" << std::endl;
+    spdlog::info("[*] Sorting files by file size, smallest first");
     // Then, just in case, remove duplicate entries: 1) Sort  2) Erase Duplicates
     std::sort(all_hashes.begin(), all_hashes.end(), [](const pathstruct& a, const pathstruct& b) {
         return (a.filesize < b.filesize);
     });
-    std::cout << "[*] Erasing duplicate entries, if any" << std::endl;
+    spdlog::info("[*] Erasing duplicate entries, if any");
     all_hashes.erase(std::unique(all_hashes.begin(), all_hashes.end()), all_hashes.end());
     return all_hashes;
 }
@@ -368,7 +369,7 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
  */
 cxxopts::ParseResult parse_cmdline_args(int argc, const char* argv[])
 {
-std::cout << "[+] " << argv[0] << std::endl;
+    std::cout << "[+] " << argv[0] << std::endl;
 
     cxxopts::Options options(argv[0], " - Recursively calculate the crypto hashes for a directory");
     bool run_tests;
@@ -421,23 +422,26 @@ extern "C"
 int main(int argc, const char* argv[])
 {
     std::vector< std::future<pathpair> > tasks;
+    spdlog::set_level(spdlog::level::info);
+    spdlog::set_pattern("[%H:%M:%S %z] [%n] [%^---%L---%$] [thread %t] %v");
     cxxopts::ParseResult cmdline_args = parse_cmdline_args(argc, argv);
     bool use_osapi_hash = true;
     bool verbose = false;
 
     if(cmdline_args.count("v") || cmdline_args.count("verbose"))
     {
+        spdlog::set_level(spdlog::level::debug); // Set global log level to debug
         verbose = true;
     }
     else
     {
-        std::cout << "[!] Only displaying failed checksums, re-run with '-v' | '-verbose' to see all hashes" << std::endl;
+        spdlog::warn("[!] Only displaying failed checksums, re-run with '-v' | '-verbose' to see all hashes");
     }
 
 #ifdef _WIN32 // register signal handlers
     if (!SetConsoleCtrlHandler(ctrl_c_handler, TRUE))
     {
-        std::cerr << "[-] Could not set control handler" << std::endl;
+        spdlog::critical("[-] Could not set control handler");
         exit(EXIT_FAILURE);
     }
 #else
@@ -447,14 +451,14 @@ int main(int argc, const char* argv[])
     struct rlimit limit;
     if (getrlimit(RLIMIT_NOFILE, &limit) != 0)
     {
-        std::cerr << "[-] getrlimit() failed with errno=" << errno << std::endl;
+        spdlog::critical("[-] getrlimit() failed with errno={}", errno);
         return 1;
     }
 #endif // REGISTER SIGNAL HANDLERS
 
     if(cmdline_args.count("n") || cmdline_args.count("no-osapi-hash"))
     {
-        std::cout << "[*] Forcing the use of built-in hashing algorithm" << std::endl;
+        spdlog::info("[*] Forcing the use of built-in hashing algorithm");
         use_osapi_hash = false;
     }
 
@@ -462,7 +466,7 @@ int main(int argc, const char* argv[])
         auto hashalg = get_hashalg(cmdline_args);
         auto all_hashes = load_hashes(cmdline_args);
         size_t num_files = all_hashes.size();
-        std::cout << "[+] Computing and checking " << num_files << " file hashes" << std::endl;
+        spdlog::info("[+] Computing and checking {} file hashes", num_files);
 #ifndef _WIN32
         if((size_t)(limit.rlim_cur) < num_files || (size_t)(limit.rlim_max) < num_files)
         {
@@ -473,7 +477,7 @@ int main(int argc, const char* argv[])
                 limit.rlim_max = num_files * 2;
                 if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
                 {
-                    std::cerr << "[-] setrlimit() failed with errno=" << errno << std::endl;
+                    spdlog::critical("[-] setrlimit() failed with errno={}", errno);
                     return 1;
                 }
             }
@@ -499,7 +503,7 @@ int main(int argc, const char* argv[])
     size_t numFiles = tasks.size();
     if(numFiles == 0)
     {
-        std::cout << "[+] Done: No files to process" << std::endl << std::endl;
+        spdlog::info("[+] Done: No files to process");
         close_log();
         return 0;
     }
@@ -516,7 +520,7 @@ int main(int argc, const char* argv[])
         pathpair pair = f.get();
         if(pair.second == HASH_CANCELLED_STR || pair.second == HASH_FAILED_STR)
         {
-            std::cout << "(" << (int)totalProgress << "%)[!] " << pair.second << " => " << pair.first << std::endl;
+            spdlog::info("({}%)[!] {} => {}", (int)totalProgress, pair.second, pair.first.string());
         }
         else
         {
@@ -537,7 +541,7 @@ int main(int argc, const char* argv[])
         }
     }
 
-    std::cout << "[+] Done" << std::endl << std::endl;
+    spdlog::info("[+] Done");
     close_log();
     destroy_hash_concurrency_limit();
     return 0;

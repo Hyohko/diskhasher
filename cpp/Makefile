@@ -25,7 +25,7 @@
 # Parallel compile
 MAKEFLAGS += -j8
 
-INC=-I./include
+INC=-I./include -I./spdlog/include
 CC := gcc
 CCX := g++
 COMMONFLAGS := -g -Ofast -Wall -Wextra -Wconversion \
