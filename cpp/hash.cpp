@@ -117,13 +117,34 @@ void run_hash_tests()
     }
 }
 
+/*
+    Why use POSIX open() vs fopen()? In linux, we have access to the O_DIRECT flag
+    which hints at the kernel not to cache the read buffer but pass it straight
+    through to the user space program. This may give a speed improvement since we are
+    not attempting to write the hashed file to the disk. The most equivalent
+    Windows flag (since we are reading files from front to back) is _O_SEQUENTIAL
+*/
+#include <fcntl.h> // POSIX Open
+#ifdef _WIN32
+#include <io.h>
+#define open(a,b)   _open((a),(b))
+#define read(a,b,c) _read((a),(b),(c))
+#define close(a)    _close((a))
+#define O_DIRECT    (_O_SEQUENTIAL)
+#else
+/*
+    Windows requires O_BINARY to open the file in binary mode, which is the default
+    on POSIX systems.
+*/
+#define O_BINARY    (0)
+#endif
 pathpair hash_file_thread_func(const fs::path& path, HASHALG algorithm, const std::string& expected, bool use_osapi_hashing)
 {
     // Define this as needed (2 MB, currently)
     const size_t READCHUNK_SIZE = 1024 * 1024 * 2;
     std::unique_ptr<hash> hasher;
     std::string hexdigest;
-    std::FILE* r_file = NULL;
+    int r_file = -1;
 
     std::unique_ptr<unsigned char[]> safeBuf(new unsigned char[READCHUNK_SIZE]);
     unsigned char* buf = safeBuf.get();
@@ -157,8 +178,8 @@ pathpair hash_file_thread_func(const fs::path& path, HASHALG algorithm, const st
     use_osapi_hashing ? hasher->enable_osapi_hashing() : hasher->disable_osapi_hashing();
 
     sem_lock();
-    r_file = std::fopen(path.string().c_str(), "rb");
-    if(!r_file)
+    r_file = open(path.string().c_str(), O_RDONLY | O_DIRECT | O_BINARY);
+    if(-1 == r_file)
     {
         std::cerr << "[-] Error: " << std::strerror(errno) << " => File '" << path << "' failed to open" << std::endl;
         goto exit;
@@ -171,35 +192,32 @@ pathpair hash_file_thread_func(const fs::path& path, HASHALG algorithm, const st
             hexdigest = HASH_CANCELLED_STR;
             goto exit;
         }
-        size_t bytes_read = fread(buf, sizeof(unsigned char), READCHUNK_SIZE, r_file);
-        if(bytes_read == 0) //EOF
+        int bytes_read = read(r_file, buf, READCHUNK_SIZE);
+        switch (bytes_read)
         {
-            if(feof(r_file))
-            {
-                //std::cout << "[*] End of file reached => " << path << std::endl;
-                break;
-            }
-            else if(ferror(r_file))
-            {
-                std::cerr << "[-] Error: " << std::strerror(errno) << " => Failed to read from " << path << std::endl;
-                hexdigest = HASH_FAILED_STR;
-                goto exit;
-            }
-            else
-            {
-                std::cerr << "[-] Error: Totally unexpected edge case failure, debug it" << std::endl;
-                hexdigest = HASH_FAILED_STR;
-                goto exit;
-            }
+        case 0: // EOF
+            //std::cout << "[*] End of file reached => " << path << std::endl;
+            goto eof;
+            break;
+        case -1: // ERROR
+            std::cerr << "[-] Error: " << std::strerror(errno) << " => Failed to read from " << path << std::endl;
+            hexdigest = HASH_FAILED_STR;
+            goto exit;
+            break;
+        default:
+            // More data to receive
+            // std::cout << "[*] Looping => " << path << std::endl;
+            break;
         }
         hasher->update(buf, bytes_read);
     }
+eof:
     hexdigest = hasher->get_hash();
     log_result(path, expected, hexdigest);
 exit:
-    if(r_file)
+    if(-1 != r_file)
     {
-        std::fclose(r_file);
+        close(r_file);
     }
     sem_unlock();
 
