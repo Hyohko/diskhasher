@@ -433,6 +433,7 @@ int main(int argc, const char* argv[])
     cxxopts::ParseResult cmdline_args = parse_cmdline_args(argc, argv);
     bool use_osapi_hash = true;
     bool verbose = false;
+    bool print_debug = false;
 
     if(cmdline_args.count("v") || cmdline_args.count("verbose"))
     {
@@ -440,6 +441,7 @@ int main(int argc, const char* argv[])
         if(cmdline_args.count("v") >= 2)
         {
             spdlog::set_level(spdlog::level::debug); // Set global log level to debug
+            print_debug = true;
         }
     }
     else
@@ -471,6 +473,7 @@ int main(int argc, const char* argv[])
         use_osapi_hash = false;
     }
 
+    spdlog::info("[*] {} cores available for processing", std::thread::hardware_concurrency());
     { // A scope for all_hashes
         auto hashalg = get_hashalg(cmdline_args);
         auto all_hashes = load_hashes(cmdline_args);
@@ -508,14 +511,13 @@ int main(int argc, const char* argv[])
         for(const auto& s : all_hashes)
         {
             tasks.emplace_back(std::async(std::launch::async, hash_file_thread_func,
-                                          s.path, hashalg, s.hash, use_osapi_hash));
+                                          s.path, hashalg, s.hash, use_osapi_hash, print_debug));
         }
     }
 
     // Wait for and process results - the benefit of the std::sort() above is that, by sorting
     // on file size, we get results faster on the vast majority of the files. Less blocking
     // on big files in lieu of smaller ones.
-    spdlog::info("[*] {} cores available for processing", std::thread::hardware_concurrency());
     size_t numFiles = tasks.size();
     if(numFiles == 0)
     {

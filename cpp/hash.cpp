@@ -28,7 +28,7 @@
 #define _CRT_SECURE_NO_WARNINGS 1
 #endif
 
-#define SPDLOGGER 0
+#define SPDLOGGER 1
 
 #include "common.h"
 #include "hash.h"
@@ -148,7 +148,7 @@ void run_hash_tests()
 */
 #define O_BINARY    (0)
 #endif
-pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string expected, bool use_osapi_hashing)
+pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string expected, bool use_osapi_hashing, bool verbose)
 {
     // Define this as needed (2 MB, currently)
     const size_t READCHUNK_SIZE = 1024 * 1024 * 2;
@@ -162,13 +162,21 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
         std::stringstream ss;
         ss << myid;
         local_logger = spdlog::stdout_color_mt(ss.str());
+        if(verbose)
+        {
+            local_logger->set_level(spdlog::level::debug); // Set local log level to debug
+        }
+        else
+        {
+            local_logger->set_level(spdlog::level::info);
+        }
     }
     
     std::unique_ptr<unsigned char[]> safeBuf(new unsigned char[READCHUNK_SIZE]);
     unsigned char* buf = safeBuf.get();
     if(!buf)
     {
-        std::cerr << "[-] Allocation failure" << std::endl;
+        local_logger->error("[-] Allocation failure");
         hexdigest = HASH_CANCELLED_STR;
         goto exit;
     }
@@ -188,7 +196,7 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
 
     if(nullptr == safeBuf.get())
     {
-        std::cerr << "[-] Allocation failure - hash object" << std::endl;
+        local_logger->error("[-] Allocation failure - hash object");
         hexdigest = HASH_FAILED_STR;
         goto exit;
     }
@@ -199,7 +207,7 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
     r_file = open(path.string().c_str(), O_RDONLY | O_DIRECT | O_BINARY);
     if(-1 == r_file)
     {
-        std::cerr << "[-] Error: " << std::strerror(errno) << " => File '" << path << "' failed to open" << std::endl;
+        local_logger->error("[-] OsErr: {} => File '{}' failed to open", std::strerror(errno), path.string());
         goto exit;
     }
 
@@ -214,17 +222,17 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
         switch (bytes_read)
         {
         case 0: // EOF
-            spdlog::debug("[*] End of file reached => {}", path.string());
+            local_logger->debug("[*] End of file reached => {}", path.string());
             goto eof;
             break;
         case -1: // ERROR
-            spdlog::error("[-] errno {} => Failed to read from '{}'", std::strerror(errno), path.string());
+            local_logger->error("[-] errno {} => Failed to read from '{}'", std::strerror(errno), path.string());
             hexdigest = HASH_FAILED_STR;
             goto exit;
             break;
         default:
             // More data to receive
-            spdlog::debug("[*] More data to receive for => {}", path.string());
+            // spdlog::debug("[*] More data to receive for => {}", path.string());
             break;
         }
         hasher->update(buf, bytes_read);
