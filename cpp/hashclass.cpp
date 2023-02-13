@@ -26,6 +26,8 @@
 
 #include "common.h"
 #include "hashclass.h"
+#include <spdlog/spdlog.h>
+#include <spdlog/fmt/bin_to_hex.h>
 
 #ifdef _WIN32
 #define STATUS_UNSUCCESSFUL 0xC0000001
@@ -81,7 +83,7 @@ bool check_osapi_hash_available()
         struct kcapi_handle *handle = NULL;
         if (fs::exists("/proc/crypto"))
         {
-            std::cout << "[+] Checking for 'md5-generic' kernel driver" << std::endl;
+            spdlog::info("[+] Checking for 'md5-generic' kernel driver");
             // KCAPI emits its own errors through stderr which has confused users of this utility. This call
             // is the most likely to fail, so we want to quash its verbosity by silencing stderr usage.
             disable_stderr();
@@ -93,7 +95,7 @@ bool check_osapi_hash_available()
             }
             else
             {
-                std::cout << "[!] 'md5-generic' missing, defaulting to 'md5' kernel driver" << std::endl;
+                spdlog::warn("[!] 'md5-generic' missing, defaulting to 'md5' kernel driver");
                 disable_stderr();
                 ret = kcapi_md_init(&handle, "md5", 0);
                 enable_stderr();
@@ -103,7 +105,7 @@ bool check_osapi_hash_available()
                 }
                 else
                 {
-                    std::cerr << "[-] OS API hashing installed, but not accessible from user-space" << std::endl;
+                    spdlog::warn("[-] OS API hashing installed, but not accessible from user-space");
                 }
             }
         }
@@ -113,11 +115,11 @@ bool check_osapi_hash_available()
         }
         if(!available)
         {
-            std::cout << "[*] Defaulting to built-in hashing" << std::endl;
+            spdlog::info("[*] Defaulting to built-in hashing");
         }
         else
         {
-            std::cout << "[*] OS API hashing is available" << std::endl;
+            spdlog::info("[*] OS API hashing is available");
         }
     }
     check_lock.unlock();
@@ -158,7 +160,7 @@ bool hash::osapi_starts(const char* hashname)
     if(!osapi_hashing_available()) return false;
     if(!hashname)
     {
-        std::cerr << "[-] Missing hashname, check implementation" << std::endl;
+        spdlog::critical("[-] Missing hashname, check implementation");
         return false;
     }
 #ifdef _WIN32
@@ -166,13 +168,13 @@ bool hash::osapi_starts(const char* hashname)
     DWORD cbData = 0;
     if(!NT_SUCCESS(status = BCryptOpenAlgorithmProvider(&m_hAlg, hashname, NULL, 0)))
     {
-        std::cerr << "[-] Error 0x" << hexStr((unsigned char*)&status, 4) << " returned by BCryptOpenAlgorithmProvider" << std::endl;
+        spdlog::critical("[-] WinError 0x{} returned by BCryptOpenAlgorithmProvider", hexStr((unsigned char*)&status, 4));
         return false;
     }
 
     if(!NT_SUCCESS(status = BCryptCreateHash(m_hAlg, &m_hHash, NULL, 0, NULL, 0, 0)))
     {
-        std::cerr << "[-]  Error 0x" << hexStr((unsigned char*)&status, 4) << " returned by BCryptCreateHash" << std::endl;
+        spdlog::critical("[-] WinError 0x{} returned by BCryptCreateHash", hexStr((unsigned char*)&status, 4));
         BCryptCloseAlgorithmProvider(m_hAlg, 0);
         m_hAlg = NULL;
         return false;
@@ -180,7 +182,7 @@ bool hash::osapi_starts(const char* hashname)
 #else
     if(0 != kcapi_md_init(&m_handle, hashname, 0))
     {
-        std::cerr << "[-] Could not create OS API hash handle" << std::endl;
+        spdlog::critical("[-] Could not create OS API hash handle");
         return false;
     }
 #endif
@@ -198,29 +200,29 @@ bool hash::osapi_update(const unsigned char* buf, size_t ilen) const
     if(!osapi_hashing_available()) return false;
     if(!buf)
     {
-        std::cerr << "[-] NULL Pointer data buffer" << std::endl;
+        spdlog::critical("[-] NULL Pointer data buffer");
         return false;
     }
     if(0 == ilen)
     {
-        std::cout << "[*] Warning - zero-length buffer passed to update" << std::endl;
+        spdlog::warn("[*] Warning - zero-length buffer passed to update");
     }
 #ifdef _WIN32
     NTSTATUS status = STATUS_UNSUCCESSFUL;
     if(NULL == m_hHash)
     {
-        std::cerr << "[-] Invalid hash handle, cannot update" << std::endl;
+        spdlog::critical("[-] Invalid hash handle, cannot update");
         return false;
     }
     if(!NT_SUCCESS(status = BCryptHashData(m_hHash, (PBYTE)buf, (ULONG)ilen, 0)))
     {
-        std::cerr << "[-] Error 0x" << hexStr((unsigned char*)&status, 4) << " returned by BCryptHashData" << std::endl;
+        spdlog::critical("[-] WinError 0x{} returned by BCryptHashData", hexStr((unsigned char*)&status, 4));
         return false;
     }
 #else
     if(!m_handle)
     {
-        std::cerr << "[-] Invalid hash handle, cannot update" << std::endl;
+        spdlog::critical("[-] Invalid hash handle, cannot update");
         return false;
     }
     kcapi_md_update(m_handle, buf, ilen);
@@ -241,12 +243,12 @@ bool hash::osapi_finish()
     NTSTATUS status = STATUS_UNSUCCESSFUL;
     if(NULL == m_hHash)
     {
-        std::cerr << "[-] Invalid hash handle, cannot finish" << std::endl;
+        spdlog::critical("[-] Invalid hash handle, cannot finish");
         return false;
     }
     if(!NT_SUCCESS(status = BCryptFinishHash(m_hHash, m_digestBuf, (ULONG)m_lenDigest, 0)))
     {
-        std::cout << __FUNCTION__ << " " << __LINE__ << " --- Error 0x" << hexStr((unsigned char*)&status, 4) << " returned by BCryptFinishHash" << std::endl;
+        spdlog::critical("[-] WinError 0x{} returned by BCryptFinishHash", hexStr((unsigned char*)&status, 4));
         ret = false;
     }
     if(m_hAlg)
@@ -263,7 +265,7 @@ bool hash::osapi_finish()
 #else
     if(!m_handle)
     {
-        std::cerr << "[-] Invalid hash handle, cannot finalize hash" << std::endl;
+        spdlog::critical("[-] Invalid hash handle, cannot finalize hash");
         return false;
     }
     kcapi_md_final(m_handle, (uint8_t*)m_digestBuf, m_lenDigest);

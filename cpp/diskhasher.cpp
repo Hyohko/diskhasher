@@ -45,6 +45,9 @@
 #include "cxxopts.hpp"
 #include <spdlog/spdlog.h>
 
+// #define SPDLOG_PATTERN "[%H:%M:%S] [%n] [%^---%L---%$] [thread %t] %v"
+#define SPDLOG_PATTERN "[%H:%M:%S] [%^---%L---%$] %v"
+
 // Helper struct for pre-computing the file sizes, greatly speeding up
 // std::sort's lambda function
 typedef struct pathstruct
@@ -423,15 +426,18 @@ int main(int argc, const char* argv[])
 {
     std::vector< std::future<pathpair> > tasks;
     spdlog::set_level(spdlog::level::info);
-    spdlog::set_pattern("[%H:%M:%S %z] [%n] [%^---%L---%$] [thread %t] %v");
+    spdlog::set_pattern(SPDLOG_PATTERN);
     cxxopts::ParseResult cmdline_args = parse_cmdline_args(argc, argv);
     bool use_osapi_hash = true;
     bool verbose = false;
 
     if(cmdline_args.count("v") || cmdline_args.count("verbose"))
     {
-        spdlog::set_level(spdlog::level::debug); // Set global log level to debug
         verbose = true;
+        if(cmdline_args.count("v") >= 2)
+        {
+            spdlog::set_level(spdlog::level::debug); // Set global log level to debug
+        }
     }
     else
     {
@@ -500,6 +506,7 @@ int main(int argc, const char* argv[])
     // Wait for and process results - the benefit of the std::sort() above is that, by sorting
     // on file size, we get results faster on the vast majority of the files. Less blocking
     // on big files in lieu of smaller ones.
+    spdlog::info("[*] {} cores available for processing", std::thread::hardware_concurrency());
     size_t numFiles = tasks.size();
     if(numFiles == 0)
     {
@@ -526,8 +533,7 @@ int main(int argc, const char* argv[])
         {
             if(verbose)
             {
-                std::cout << "(" << (int)totalProgress << "%)[+] file:  " << pair.first << std::endl;
-                std::cout << "\tdigest:  " << pair.second << std::endl << std::endl;
+                spdlog::info("({}%)[+] file:  {}\n\t\t\tdigest:  {}", (int)totalProgress, pair.first.string(), pair.second);
             }
             else if(
                     (totalFilesHashed % approxFivePct) == 0 ||
@@ -536,7 +542,7 @@ int main(int argc, const char* argv[])
             {
                 // For every five percent of files hashed, print a status report, and also
                 // once the last file has been hashed
-                std::cout << "(" << (int)totalProgress << "%)[+] " << totalFilesHashed << " files hashed" << std::endl;
+                spdlog::info("({}%)[+] {} files hashed", (int)totalProgress, totalFilesHashed);
             }
         }
     }

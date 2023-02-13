@@ -31,6 +31,7 @@
 #include "common.h"
 #include "hash.h"
 #include "hashclass.h"
+#include <spdlog/spdlog.h>
 
 /**
  * @brief Atomically log the results of the hashing to stdout. If a log file has been opened
@@ -105,15 +106,15 @@ void run_hash_tests()
 {
     if(osapi_hashing_available())
     {
-        std::cout << "[+] OS API for hashing is available" << std::endl;
+        spdlog::info("[+] OS API for hashing is available");
     }
     else
     {
-        std::cout << "[+] Running self tests using FIPS-180 test vectors" << std::endl;
+        spdlog::info("[+] Running self tests using FIPS-180 test vectors");
         md5_self_test(1);
         sha1_self_test(1);
         sha256_self_test(1);
-        std::cout << "[+] Self test complete" << std::endl;
+        spdlog::info("[+] Self test complete");
     }
 }
 
@@ -196,17 +197,17 @@ pathpair hash_file_thread_func(const fs::path& path, HASHALG algorithm, const st
         switch (bytes_read)
         {
         case 0: // EOF
-            //std::cout << "[*] End of file reached => " << path << std::endl;
+            spdlog::debug("[*] End of file reached => {}", path.string());
             goto eof;
             break;
         case -1: // ERROR
-            std::cerr << "[-] Error: " << std::strerror(errno) << " => Failed to read from " << path << std::endl;
+            spdlog::error("[-] errno {} => Failed to read from '{}'", std::strerror(errno), path.string());
             hexdigest = HASH_FAILED_STR;
             goto exit;
             break;
         default:
             // More data to receive
-            // std::cout << "[*] Looping => " << path << std::endl;
+            spdlog::debug("[*] More data to receive for => {}", path.string());
             break;
         }
         hasher->update(buf, bytes_read);
@@ -226,7 +227,7 @@ exit:
 
 void stop_tasks()
 {
-    std::cout << "[!] STOP ALL TASKS called" << std::endl;
+    spdlog::warn("[!] STOP ALL TASKS called");
     s_task_ended = true;
 }
 
@@ -236,10 +237,10 @@ void set_log_path(const fs::path& path, bool log_successes)
     s_logfile = fopen(path.string().c_str(), "w");
     if(!s_logfile)
     {
-        std::cerr << "[-] Error: " << std::strerror(errno) << " => File '" << path << "' failed to open, no logging available for this run" << std::endl;
+        spdlog::error("[-] Error: {} => File '{}' failed to open, no logging available for this run", std::strerror(errno), path.string());
         return;
     }
-    std::cout << "[+] Logging results to " << path << std::endl;
+    spdlog::info("[+] Logging results to {}", path.string());
     s_log_successes = log_successes;
     log_lock.unlock();
 }
@@ -266,9 +267,9 @@ void log_result(const fs::path& path, const std::string& expected, const std::st
     log_lock.lock();
     if(actual != expected)
     {
-        std::cout << "[-] File '" << path << "' failed checksum" << std::endl;
-        std::cout << "    Expected: '" << expected << std::endl;
-        std::cout << "    Actual  : '" << actual << std::endl;
+        spdlog::error("[-] File '{}' failed checksum\n" \
+        "    Expected: '{}'\n" \
+        "    Actual  : '{}'", path.string(), expected, actual);
         if(s_logfile)
         {
             fprintf(s_logfile, "[-] FAILURE =>\n\tFile     : %s\n\tExpected : %s\n\tActual   : %s\n", path.string().c_str(), expected.c_str(), actual.c_str());
