@@ -421,12 +421,15 @@ cxxopts::ParseResult parse_cmdline_args(int argc, const char* argv[])
 /**
  * @brief main
  */
+#include <spdlog/sinks/stdout_color_sinks.h>
 extern "C"
 int main(int argc, const char* argv[])
 {
-    std::vector< std::future<pathpair> > tasks;
+    // Default logger - async console
     spdlog::set_level(spdlog::level::info);
     spdlog::set_pattern(SPDLOG_PATTERN);
+    
+    std::vector< std::future<pathpair> > tasks;
     cxxopts::ParseResult cmdline_args = parse_cmdline_args(argc, argv);
     bool use_osapi_hash = true;
     bool verbose = false;

@@ -35,19 +35,8 @@
 #include "sha1.h"
 #include "sha256.h"
 
-#ifdef _WIN32
-#define osapi_hashing_available()  true
-#else
-#define osapi_hashing_available()  check_osapi_hash_available()
-/**
- * @brief Linux only - check to see if the Kernel Crypto API is installed and available
- * to user space
- * @return false if OS API crypto is not available
- * @note Static booleans prevent the internal logic from running more than once
- * to save time/space
-*/
-bool check_osapi_hash_available();
-#endif
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 /**
@@ -57,6 +46,7 @@ bool check_osapi_hash_available();
 **/
 class hash {
 private:
+    std::shared_ptr<spdlog::logger> m_logger;
 #ifdef _WIN32
     BCRYPT_ALG_HANDLE       m_hAlg;
     BCRYPT_HASH_HANDLE      m_hHash;
@@ -68,6 +58,15 @@ protected:
     bool m_isOsApi;
     size_t m_lenDigest = 0; // set by derived classes
     unsigned char m_digestBuf[32]; // Largest possible digest
+
+    /**
+     * @brief Linux only - check to see if the Kernel Crypto API is installed and available
+     * to user space
+     * @return false if OS API crypto is not available
+     * @note Static booleans prevent the internal logic from running more than once
+     * to save time/space
+    */
+    virtual bool osapi_hashing_available();
 
     /**
     * @brief Start up the Operating System embedded hash API and acquire handles
@@ -86,7 +85,7 @@ protected:
     * @param ilen - Length of the data fragment
     * @return bool - Function success
     */
-    virtual bool osapi_update(const unsigned char* buf, size_t ilen) const;
+    virtual bool osapi_update(const unsigned char* buf, size_t ilen);
 
     /**
     * @brief Complete computation of the hash and save in object's digest buffer
@@ -96,7 +95,8 @@ protected:
     virtual bool osapi_finish();
 
 public:
-    hash();
+    hash() = delete;
+    hash(std::shared_ptr<spdlog::logger> logger);
     hash(const hash&) = delete;
     hash& operator=(const hash&) = delete;
     virtual ~hash();
@@ -141,7 +141,13 @@ private:
 #endif
     const static size_t m_md5Len = 16;
 public:
-    c_md5();
+    c_md5() = delete;
+    c_md5(std::shared_ptr<spdlog::logger> logger) : hash(logger)
+    {
+        m_lenDigest = m_md5Len;
+        osapi_starts(m_hashname);
+        md5_starts(&m_ctx);
+    }
     c_md5(const c_md5&) = delete;
     c_md5& operator=(const c_md5&) = delete;
     virtual ~c_md5();
@@ -166,7 +172,13 @@ private:
 #endif
     const static size_t m_sha1Len = 20;
 public:
-    c_sha1();
+    c_sha1() = delete;
+    c_sha1(std::shared_ptr<spdlog::logger> logger) : hash(logger)
+    {
+        m_lenDigest = m_sha1Len;
+        osapi_starts(m_hashname);
+        sha1_starts(&m_ctx);
+    }
     c_sha1(const c_sha1&) = delete;
     c_sha1& operator=(const c_sha1&) = delete;
     virtual ~c_sha1();
@@ -191,7 +203,13 @@ private:
 #endif
     const static size_t m_sha256Len = 32;
 public:
-    c_sha256();
+    c_sha256() = delete;
+    c_sha256(std::shared_ptr<spdlog::logger> logger) : hash(logger)
+    {
+        m_lenDigest = m_sha256Len;
+        osapi_starts(m_hashname);
+        sha256_starts(&m_ctx);
+    }
     c_sha256(const c_sha256&) = delete;
     c_sha256& operator=(const c_sha256&) = delete;
     virtual ~c_sha256();

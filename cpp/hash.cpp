@@ -28,6 +28,8 @@
 #define _CRT_SECURE_NO_WARNINGS 1
 #endif
 
+#define SPDLOGGER 0
+
 #include "common.h"
 #include "hash.h"
 #include "hashclass.h"
@@ -44,9 +46,16 @@
 static void log_result(const fs::path& path, const std::string& expected, const std::string& actual);
 
 static std::atomic_bool s_task_ended(false);
-static FILE* s_logfile = NULL;
 static bool s_log_successes = false;
+#if SPDLOGGER
+#include <spdlog/async.h>
+#include <spdlog/sinks/basic_file_sink.h>
+std::shared_ptr<spdlog::logger> s_logfile;
+bool s_logger_init = false;
+#else
+static FILE* s_logfile = NULL;
 static std::mutex log_lock;
+#endif
 
 //concurrency semaphores
 static std::atomic_bool s_sem_isset(false);
@@ -104,11 +113,11 @@ void destroy_hash_concurrency_limit()
 
 void run_hash_tests()
 {
-    if(osapi_hashing_available())
-    {
-        spdlog::info("[+] OS API for hashing is available");
-    }
-    else
+    //if(osapi_hashing_available())
+    //{
+    //    spdlog::info("[+] OS API for hashing is available");
+    //}
+    //else
     {
         spdlog::info("[+] Running self tests using FIPS-180 test vectors");
         md5_self_test(1);
@@ -147,6 +156,14 @@ pathpair hash_file_thread_func(const fs::path& path, HASHALG algorithm, const st
     std::string hexdigest;
     int r_file = -1;
 
+    std::shared_ptr<spdlog::logger> local_logger;
+    {
+        auto myid = std::this_thread::get_id();
+        std::stringstream ss;
+        ss << myid;
+        local_logger = spdlog::stdout_color_mt(ss.str());
+    }
+    
     std::unique_ptr<unsigned char[]> safeBuf(new unsigned char[READCHUNK_SIZE]);
     unsigned char* buf = safeBuf.get();
     if(!buf)
@@ -159,13 +176,13 @@ pathpair hash_file_thread_func(const fs::path& path, HASHALG algorithm, const st
     switch(algorithm)
     {
     case MD5:
-        hasher = std::make_unique<c_md5>();
+        hasher = std::make_unique<c_md5>(local_logger);
         break;
     case SHA1:
-        hasher = std::make_unique<c_sha1>();
+        hasher = std::make_unique<c_sha1>(local_logger);
         break;
     case SHA256:
-        hasher = std::make_unique<c_sha256>();
+        hasher = std::make_unique<c_sha256>(local_logger);
         break;
     }
 
@@ -231,6 +248,60 @@ void stop_tasks()
     s_task_ended = true;
 }
 
+#if SPDLOGGER
+void set_log_path(const fs::path& path, bool log_successes)
+{
+    try
+    {
+        s_logfile = spdlog::basic_logger_mt<spdlog::async_factory>("async_file_logger", path.string());
+    }
+    catch (const spdlog::spdlog_ex &ex)
+    {
+        spdlog::error("[-] Error: {} => File '{}' failed to open, no logging available for this run", std::strerror(errno), path.string());
+        return;
+    }
+    spdlog::info("[+] Logging results to {}", path.string());
+    s_log_successes = log_successes;
+    s_logger_init = true;
+}
+
+void close_log()
+{
+    s_logger_init = false;
+    s_logfile.reset();
+}
+
+void log_result(const fs::path& path, const std::string& expected, const std::string& actual)
+{
+    static const std::string ignored(IGNORE_HASH_CHECK);
+    if(expected == ignored)
+    {
+        return;
+    }
+    if(actual != expected)
+    {
+        spdlog::error("[-] File '{}' failed checksum\n" \
+        "\t\t\tExpected: '{}'\n" \
+        "\t\t\tActual  : '{}'", path.string(), expected, actual);
+        if(s_logger_init)
+        {
+            s_logfile->error("[-] FAILURE =>\n\t" \
+                "File     : {}\n\t" \
+                "Expected : {}\n\t" \
+                "Actual   : {}\n", path.string().c_str(), expected.c_str(), actual.c_str());
+        }
+    }
+    else if(s_log_successes)
+    {
+        if(s_logger_init)
+        {
+            s_logfile->info("[-] SUCCESS =>\n\t" \
+            "File     : {}\n\t" \
+            "Actual   : {}\n", path.string().c_str(), actual.c_str());
+        }
+    }
+}
+#else
 void set_log_path(const fs::path& path, bool log_successes)
 {
     log_lock.lock();
@@ -286,3 +357,4 @@ void log_result(const fs::path& path, const std::string& expected, const std::st
     }
     log_lock.unlock();
 }
+#endif
