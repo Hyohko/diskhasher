@@ -485,12 +485,18 @@ int main(int argc, const char* argv[])
 #else
         // TODO: Windows RLIMIT-equivalent task here if necessary
 #endif
-        std::for_each(all_hashes.begin(), all_hashes.end(),
+        /*std::for_each(all_hashes.begin(), all_hashes.end(),
         [&](const pathstruct& s)
         {
             tasks.emplace_back(std::async(std::launch::async, hash_file_thread_func,
                                           s.path, hashalg, s.hash, use_osapi_hash));
-        });
+        });*/
+        // the lambda in std::for_each causes a double-free. Omit until later.
+        for(const auto& s : all_hashes)
+        {
+            tasks.emplace_back(std::async(std::launch::async, hash_file_thread_func,
+                                          s.path, hashalg, s.hash, use_osapi_hash));
+        }
     }
 
     // Wait for and process results - the benefit of the std::sort() above is that, by sorting
