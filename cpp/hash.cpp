@@ -268,8 +268,8 @@ void log_result(const fs::path& path, const std::string& expected, const std::st
     if(actual != expected)
     {
         spdlog::error("[-] File '{}' failed checksum\n" \
-        "    Expected: '{}'\n" \
-        "    Actual  : '{}'", path.string(), expected, actual);
+        "\t\t\tExpected: '{}'\n" \
+        "\t\t\tActual  : '{}'", path.string(), expected, actual);
         if(s_logfile)
         {
             fprintf(s_logfile, "[-] FAILURE =>\n\tFile     : %s\n\tExpected : %s\n\tActual   : %s\n", path.string().c_str(), expected.c_str(), actual.c_str());
