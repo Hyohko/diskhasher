@@ -148,7 +148,7 @@ void run_hash_tests()
 */
 #define O_BINARY    (0)
 #endif
-pathpair hash_file_thread_func(const fs::path& path, HASHALG algorithm, const std::string& expected, bool use_osapi_hashing)
+pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string expected, bool use_osapi_hashing)
 {
     // Define this as needed (2 MB, currently)
     const size_t READCHUNK_SIZE = 1024 * 1024 * 2;
