@@ -47,15 +47,10 @@ static void log_result(const fs::path& path, const std::string& expected, const 
 
 static std::atomic_bool s_task_ended(false);
 static bool s_log_successes = false;
-#if SPDLOGGER
 #include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
 std::shared_ptr<spdlog::logger> s_logfile;
 bool s_logger_init = false;
-#else
-static FILE* s_logfile = NULL;
-static std::mutex log_lock;
-#endif
 
 //concurrency semaphores
 static std::atomic_bool s_sem_isset(false);
@@ -256,7 +251,6 @@ void stop_tasks()
     s_task_ended = true;
 }
 
-#if SPDLOGGER
 void set_log_path(const fs::path& path, bool log_successes)
 {
     try
@@ -265,7 +259,7 @@ void set_log_path(const fs::path& path, bool log_successes)
     }
     catch (const spdlog::spdlog_ex &ex)
     {
-        spdlog::error("[-] Error: {} => File '{}' failed to open, no logging available for this run", std::strerror(errno), path.string());
+        spdlog::error("[-] Error: {} => File '{}' failed to open, no logging available for this run", ex.what(), path.string());
         return;
     }
     spdlog::info("[+] Logging results to {}", path.string());
@@ -309,60 +303,3 @@ void log_result(const fs::path& path, const std::string& expected, const std::st
         }
     }
 }
-#else
-void set_log_path(const fs::path& path, bool log_successes)
-{
-    log_lock.lock();
-    s_logfile = fopen(path.string().c_str(), "w");
-    if(!s_logfile)
-    {
-        spdlog::error("[-] Error: {} => File '{}' failed to open, no logging available for this run", std::strerror(errno), path.string());
-        return;
-    }
-    spdlog::info("[+] Logging results to {}", path.string());
-    s_log_successes = log_successes;
-    log_lock.unlock();
-}
-
-void close_log()
-{
-    log_lock.lock();
-    if(s_logfile)
-    {
-        fflush(s_logfile);
-        fclose(s_logfile);
-        s_logfile = NULL;
-    }
-    log_lock.unlock();
-}
-
-void log_result(const fs::path& path, const std::string& expected, const std::string& actual)
-{
-    static const std::string ignored(IGNORE_HASH_CHECK);
-    if(expected == ignored)
-    {
-        return;
-    }
-    log_lock.lock();
-    if(actual != expected)
-    {
-        spdlog::error("[-] File '{}' failed checksum\n" \
-        "\t\t\tExpected: '{}'\n" \
-        "\t\t\tActual  : '{}'", path.string(), expected, actual);
-        if(s_logfile)
-        {
-            fprintf(s_logfile, "[-] FAILURE =>\n\tFile     : %s\n\tExpected : %s\n\tActual   : %s\n", path.string().c_str(), expected.c_str(), actual.c_str());
-            fflush(s_logfile);
-        }
-    }
-    else if(s_log_successes)
-    {
-        if(s_logfile)
-        {
-            fprintf(s_logfile, "[+] SUCCESS =>\n\tFile     : %s\n\tActual   : %s\n", path.string().c_str(), actual.c_str());
-            fflush(s_logfile);
-        }
-    }
-    log_lock.unlock();
-}
-#endif
