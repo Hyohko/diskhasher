@@ -163,7 +163,7 @@ bool hash::osapi_starts(LPCWSTR hashname)
 bool hash::osapi_starts(const char* hashname)
 #endif
 {
-    m_logger->debug("[+] Initializing hash engine");
+    //m_logger->debug("[+] Initializing hash engine");
     if(!this->osapi_hashing_available()) return false;
     if(!hashname)
     {
@@ -244,7 +244,7 @@ bool hash::osapi_update(const unsigned char* buf, size_t ilen)
 */
 bool hash::osapi_finish()
 {
-    m_logger->debug("[+] Finishing hash");
+    //m_logger->debug("[+] Finishing hash");
     if(!osapi_hashing_available()) return false;
 #ifdef _WIN32
     bool ret = true;

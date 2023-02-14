@@ -46,7 +46,7 @@
 #include <spdlog/spdlog.h>
 
 // #define SPDLOG_PATTERN "[%H:%M:%S] [%n] [%^---%L---%$] [thread %t] %v"
-#define SPDLOG_PATTERN "[%H:%M:%S] [%^---%L---%$] %v"
+#define SPDLOG_PATTERN "[%H:%M:%S] [%^%=8l%$] %v"
 
 // Helper struct for pre-computing the file sizes, greatly speeding up
 // std::sort's lambda function
@@ -115,6 +115,16 @@ void print_usage()
     std::cout << usage << std::endl;
 }
 
+std::string& ltrim(std::string &s)
+{
+    auto it = std::find_if(s.begin(), s.end(),
+                    [](char c) {
+                        return !std::isspace<char>(c, std::locale::classic());
+                    });
+    s.erase(s.begin(), it);
+    return s;
+}
+
 /**
  * @brief Parse a checksum file / hashfile, split each line containing a cryptographic
  * checksum and a relative path to a file
@@ -127,21 +137,25 @@ std::vector<pathstruct> parse_hashfile(const fs::path& filepath)
     std::ifstream infile(filepath);
     std::vector<pathstruct> hashlist;
     std::string line;
+    size_t count = 0;
 
+    std::string hash, filename;
+    filename.reserve(512);
+    hash.reserve(512);
     while (std::getline(infile, line))
     {
+        if(s_ctrl_c)
+        {
+            break;
+        }
         std::istringstream iss(line);
-        std::string hash, filename, word;
-        if (!(iss >> hash >> filename)) {
+        if (!(iss >> hash)) {
 			spdlog::error("[-] Could not parse line");
 			break;
 		} // error
 
-        while (iss >> word)
-        {
-            filename += " ";
-            filename += word;
-        }
+        std::getline(iss, filename);
+        ltrim(filename);
 
         if (filename.rfind("./", 0) == 0)
         {
@@ -156,8 +170,14 @@ std::vector<pathstruct> parse_hashfile(const fs::path& filepath)
         {
             hashlist.emplace_back(target, hash);
         }
+        count++;
+        if(count % 500 == 0)
+        {
+            spdlog::info("[*] {} hashes parsed", count);
+        }
     }
     infile.close();
+    spdlog::info("[*] {} hashes parsed", count);
     return hashlist;
 }
 
@@ -170,15 +190,28 @@ std::vector<pathstruct> parse_hashfile(const fs::path& filepath)
 pathvector recursive_dirwalk(const fs::path& root_dir)
 {
     pathvector all_files;
+    size_t count = 0;
     for(auto& itEntry : fs::recursive_directory_iterator(root_dir))
     {
         if(s_ctrl_c)
         {
             break;
         }
-        if(itEntry.is_regular_file())
+        try
         {
-            all_files.emplace_back(itEntry.path());
+            if(itEntry.is_regular_file())
+            {
+                all_files.emplace_back(itEntry.path());
+            }
+        }
+        catch(fs::filesystem_error const& e)
+        {
+            spdlog::error("[-] ({}) '{}' is not a regular file", e.what(), itEntry.path().string());
+        }
+        count++;
+        if(count % 500 == 0)
+        {
+            spdlog::debug("[*] {} directory items enumerated", count);
         }
     }
 

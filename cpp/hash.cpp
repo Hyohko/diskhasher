@@ -151,20 +151,17 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
     std::string hexdigest;
     int r_file = -1;
 
+    // Since we removed duplicate file names before starting these threads
+    // this logger name is guaranteed to be unique across runs.
     std::shared_ptr<spdlog::logger> local_logger;
+    local_logger = spdlog::stdout_color_mt(path.string());
+    if(verbose)
     {
-        auto myid = std::this_thread::get_id();
-        std::stringstream ss;
-        ss << myid;
-        local_logger = spdlog::stdout_color_mt(ss.str());
-        if(verbose)
-        {
-            local_logger->set_level(spdlog::level::debug); // Set local log level to debug
-        }
-        else
-        {
-            local_logger->set_level(spdlog::level::info);
-        }
+        local_logger->set_level(spdlog::level::debug); // Set local log level to debug
+    }
+    else
+    {
+        local_logger->set_level(spdlog::level::info);
     }
     
     std::unique_ptr<unsigned char[]> safeBuf(new unsigned char[READCHUNK_SIZE]);
