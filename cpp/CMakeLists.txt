@@ -52,6 +52,8 @@ endif (IS_LINUX)
 if(IS_WINDOWS)
     message(STATUS "Compiling for Windows")
     #set(CMAKE_CXX_FLAGS "/Ox /incremental /GS- /Gy /fp:fast")
+    #set(CMAKE_CXX_FLAGS "/Oy- /incremental /GS- /Gy /fp:fast /Zi /EHsc")
+    #set(CMAKE_EXE_LINKER_FLAGS "/DEBUG /OPT:REF /OPT:ICF")
 endif(IS_WINDOWS)
 
 # Output
