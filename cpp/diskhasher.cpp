@@ -465,7 +465,7 @@ int main(int argc, const char* argv[])
     // Default logger - async console
     spdlog::set_level(spdlog::level::info);
     spdlog::set_pattern(SPDLOG_PATTERN);
-    
+
     std::vector< std::future<pathpair> > tasks;
     cxxopts::ParseResult cmdline_args = parse_cmdline_args(argc, argv);
     bool use_osapi_hash = true;
@@ -568,10 +568,24 @@ int main(int argc, const char* argv[])
     size_t totalFilesHashed = 0;
     for(auto& f : tasks)
     {
+        pathpair pair;
         totalFilesHashed++;
         totalProgress += progressAmt;
 
-        pathpair pair = f.get();
+        if(!f.valid())
+        {
+            spdlog::warn("[*] Invalid task returned, check implementation");
+            continue;
+        }
+        try
+        {
+            pair = f.get();
+        }
+        catch( const std::exception& e )
+        {
+            spdlog::warn("[!] Exception caught while attempting to retrieve path pair from std::future => {}", e.what());
+        }
+
         if(pair.second == HASH_CANCELLED_STR || pair.second == HASH_FAILED_STR)
         {
             spdlog::info("({}%)[!] {} => {}", (int)totalProgress, pair.second, pair.first.string());
