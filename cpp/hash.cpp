@@ -165,7 +165,7 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
     {
         local_logger->set_level(spdlog::level::info);
     }
-    
+
 #ifdef _WIN32
     std::unique_ptr<unsigned char[]> safeBuf(new unsigned char[READCHUNK_SIZE]);
 #else
