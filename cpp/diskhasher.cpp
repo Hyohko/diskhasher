@@ -526,11 +526,8 @@ int main(int argc, const char* argv[])
                     return 1;
                 }
             }
-            else
-            {
-                set_hash_concurrency_limit(num_files);
-            }
         }
+        set_hash_concurrency_limit(std::min(num_files, limit.rlim_cur));
 #else
         // TODO: Windows RLIMIT-equivalent task here if necessary
 #endif

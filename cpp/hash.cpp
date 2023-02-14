@@ -64,6 +64,7 @@ static sem_t sem_threads;
 
 void set_hash_concurrency_limit(unsigned int limit)
 {
+    spdlog::info("[+] Number of simultaneously opened files: {}", limit);
 #ifdef _WIN32
     sem_threads = CreateSemaphoreW(NULL, 0, limit, NULL);
 #else
@@ -145,8 +146,8 @@ void run_hash_tests()
 #endif
 pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string expected, bool use_osapi_hashing, bool verbose)
 {
-    // Define this as needed (2 MB, currently)
-    const size_t READCHUNK_SIZE = 1024 * 1024 * 2;
+    // Define this as needed (2 MB, currently), must be a multiple of 512
+    const size_t READCHUNK_SIZE = 1024 * 1024 * 2; // (4096 * 512)
     std::unique_ptr<hash> hasher;
     std::string hexdigest;
     int r_file = -1;
@@ -224,7 +225,7 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
             break;
         default:
             // More data to receive
-            // spdlog::debug("[*] More data to receive for => {}", path.string());
+            // local_logger->debug("[*] More data to receive for => {}", path.string());
             break;
         }
         hasher->update(buf, bytes_read);
