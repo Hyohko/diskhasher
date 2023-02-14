@@ -144,10 +144,12 @@ void run_hash_tests()
 */
 #define O_BINARY    (0)
 #endif
+
 pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string expected, bool use_osapi_hashing, bool verbose)
 {
     // Define this as needed (2 MB, currently), must be a multiple of 512
     const size_t READCHUNK_SIZE = 1024 * 1024 * 2; // (4096 * 512)
+    const std::align_val_t ALIGN_SIZE = std::align_val_t(512);
     std::unique_ptr<hash> hasher;
     std::string hexdigest;
     int r_file = -1;
@@ -165,7 +167,8 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
         local_logger->set_level(spdlog::level::info);
     }
     
-    std::unique_ptr<unsigned char[]> safeBuf(new (std::align_val_t(512)) unsigned char[READCHUNK_SIZE]);
+    auto del = [](unsigned char* p){operator delete[](p, ALIGN_SIZE);};
+    std::unique_ptr<unsigned char[], decltype(del)> safeBuf(new(ALIGN_SIZE) unsigned char[READCHUNK_SIZE]);
     unsigned char* buf = safeBuf.get();
     if(!buf)
     {

@@ -358,10 +358,14 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
     if(checksum_files.size() == 1 && checksum_files[0] == COMPUTE_ONLY)
     {
         spdlog::warn("[!] No checksum files given - no log files will be generated");
-        std::for_each(all_files.begin(), all_files.end(), [&](const auto& path)
+        /*std::for_each(all_files.begin(), all_files.end(), [&](const auto& path)
         {
             all_hashes.emplace_back(path, IGNORE_HASH_CHECK);
-        });
+        });*/
+        for(const auto& path : all_files)
+        {
+            all_hashes.emplace_back(path, IGNORE_HASH_CHECK);
+        }
     }
     else
     {
@@ -498,6 +502,8 @@ int main(int argc, const char* argv[])
         spdlog::critical("[-] getrlimit() failed with errno={}", errno);
         return 1;
     }
+    spdlog::debug("[+] Current limit on open files: {}", limit.rlim_cur);
+    spdlog::debug("[+] Maximum limit on open files: {}", limit.rlim_max);
 #endif // REGISTER SIGNAL HANDLERS
 
     if(cmdline_args.count("n") || cmdline_args.count("no-osapi-hash"))
