@@ -140,10 +140,6 @@ std::vector<pathstruct> parse_hashfile(const fs::path& filepath)
     hash.reserve(512);
     while (std::getline(infile, line))
     {
-        if(s_ctrl_c)
-        {
-            break;
-        }
         std::istringstream iss(line);
         if (!(iss >> hash)) {
 			spdlog::error("[-] Could not parse line");
@@ -171,9 +167,13 @@ std::vector<pathstruct> parse_hashfile(const fs::path& filepath)
         {
             spdlog::info("[*] {} hashes parsed", count);
         }
+        if(s_ctrl_c)
+        {
+            break;
+        }
     }
-    infile.close();
     spdlog::info("[*] Total: {} hashes parsed", count);
+    infile.close();
     return hashlist;
 }
 
@@ -189,10 +189,6 @@ pathvector recursive_dirwalk(const fs::path& root_dir)
     size_t count = 0;
     for(auto& itEntry : fs::recursive_directory_iterator(root_dir))
     {
-        if(s_ctrl_c)
-        {
-            break;
-        }
         try
         {
             if(itEntry.is_regular_file())
@@ -208,6 +204,10 @@ pathvector recursive_dirwalk(const fs::path& root_dir)
         if(count % 500 == 0)
         {
             spdlog::debug("[*] {} directory items enumerated", count);
+        }
+        if(s_ctrl_c)
+        {
+            break;
         }
     }
     spdlog::debug("[*] Total: {} directory items enumerated", count);
@@ -245,7 +245,7 @@ fs::path get_root_dir(const cxxopts::ParseResult& result)
     }
     else
     {
-        spdlog::error("[!] Path required (-d || --root-dir)");
+        spdlog::critical("[!] Path required (-d || --root-dir)");
         exit(1);
     }
     return root_path;
@@ -279,9 +279,9 @@ HASHALG get_hashalg(const cxxopts::ParseResult& result)
     }
     else
     {
-            spdlog::error("[!] algorithm required (-a || --algorithm)");
-            spdlog::error("[!] Must select 'md5', 'sha1', or 'sha256'");
-            exit(1);
+        spdlog::error("[!] algorithm required (-a || --algorithm)");
+        spdlog::error("[!] Must select 'md5', 'sha1', or 'sha256'");
+        exit(1);
     }
     return algs[algstr];
 }
@@ -354,13 +354,12 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
     if(checksum_files.size() == 1 && checksum_files[0] == COMPUTE_ONLY)
     {
         spdlog::warn("[!] No checksum files given - no log files will be generated");
-        /*std::for_each(all_files.begin(), all_files.end(), [&](const auto& path)
-        {
-            all_hashes.emplace_back(path, IGNORE_HASH_CHECK);
-        });*/
-        // the lambda in std::for_each causes a double-free. Omit until later.
         for(const auto& path : all_files)
         {
+            if(s_ctrl_c)
+            {
+                break;
+            }
             all_hashes.emplace_back(path, IGNORE_HASH_CHECK);
         }
     }
@@ -368,6 +367,10 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
     {
         for( const auto& p : all_files )
         {
+            if(s_ctrl_c)
+            {
+                break;
+            }
             // Search the directory for all the checksum/hash files
             // and parse those files, storing the expected hashes
             if (std::find(checksum_files.begin(),
@@ -378,6 +381,12 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
                 all_hashes.insert(all_hashes.end(), hashes.begin(), hashes.end());
             }
         }
+    }
+
+    if(s_ctrl_c)
+    {
+        all_hashes.clear();
+        return all_hashes;
     }
 
     if(all_hashes.empty())
@@ -500,6 +509,11 @@ std::vector< std::future<pathpair> > start_tasks(const cxxopts::ParseResult& cmd
     std::vector< std::future<pathpair> > tasks;
     for(const auto& s : all_hashes)
     {
+        if(s_ctrl_c)
+        {
+            tasks.clear();
+            break;
+        }
         tasks.emplace_back(std::async(std::launch::async, hash_file_thread_func,
                                         s.path, hashalg, s.hash, use_osapi_hash, print_debug));
     }
@@ -519,11 +533,18 @@ void wait_on_tasks(std::vector< std::future<pathpair> >& tasks, size_t numFiles,
     double totalProgress = 0.0;
     size_t approxFivePct = numFiles / 20;
     size_t totalFilesHashed = 0;
+
+    spdlog::debug("[+] Polling tasks for completed hashes");
     for(auto& f : tasks)
     {
         pathpair pair;
         totalFilesHashed++;
         totalProgress += progressAmt;
+
+        if(s_ctrl_c)
+        {
+            break;
+        }
 
         if(!f.valid())
         {
