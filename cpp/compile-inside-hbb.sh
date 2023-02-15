@@ -33,6 +33,6 @@ mkdir $BUILD_DIR
 cd $BUILD_DIR
 
 /hbb/bin/cmake ..
-make
+make -j
 mv ./diskhasher $BUILD_DIR/..
 rm $BUILD_DIR -rf

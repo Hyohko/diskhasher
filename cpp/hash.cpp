@@ -28,9 +28,12 @@
 #define _CRT_SECURE_NO_WARNINGS 1
 #endif
 
+#define SPDLOGGER 1
+
 #include "common.h"
 #include "hash.h"
 #include "hashclass.h"
+#include <spdlog/spdlog.h>
 
 /**
  * @brief Atomically log the results of the hashing to stdout. If a log file has been opened
@@ -43,9 +46,11 @@
 static void log_result(const fs::path& path, const std::string& expected, const std::string& actual);
 
 static std::atomic_bool s_task_ended(false);
-static FILE* s_logfile = NULL;
 static bool s_log_successes = false;
-static std::mutex log_lock;
+#include <spdlog/async.h>
+#include <spdlog/sinks/basic_file_sink.h>
+std::shared_ptr<spdlog::logger> s_logfile;
+bool s_logger_init = false;
 
 //concurrency semaphores
 static std::atomic_bool s_sem_isset(false);
@@ -59,6 +64,7 @@ static sem_t sem_threads;
 
 void set_hash_concurrency_limit(unsigned int limit)
 {
+    spdlog::info("[+] Number of simultaneously opened files: {}", limit);
 #ifdef _WIN32
     sem_threads = CreateSemaphoreW(NULL, 0, limit, NULL);
 #else
@@ -103,17 +109,17 @@ void destroy_hash_concurrency_limit()
 
 void run_hash_tests()
 {
-    if(osapi_hashing_available())
+    //if(osapi_hashing_available())
+    //{
+    //    spdlog::info("[+] OS API for hashing is available");
+    //}
+    //else
     {
-        std::cout << "[+] OS API for hashing is available" << std::endl;
-    }
-    else
-    {
-        std::cout << "[+] Running self tests using FIPS-180 test vectors" << std::endl;
+        spdlog::info("[+] Running self tests using FIPS-180 test vectors");
         md5_self_test(1);
         sha1_self_test(1);
         sha256_self_test(1);
-        std::cout << "[+] Self test complete" << std::endl;
+        spdlog::info("[+] Self test complete");
     }
 }
 
@@ -138,19 +144,39 @@ void run_hash_tests()
 */
 #define O_BINARY    (0)
 #endif
-pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string expected, bool use_osapi_hashing)
+
+pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string expected, bool use_osapi_hashing, bool verbose)
 {
-    // Define this as needed (2 MB, currently)
-    const size_t READCHUNK_SIZE = 1024 * 1024 * 2;
+    // Define this as needed (2 MB, currently), must be a multiple of 512
+    const size_t READCHUNK_SIZE = 1024 * 1024 * 2; // (4096 * 512)
     std::unique_ptr<hash> hasher;
     std::string hexdigest;
     int r_file = -1;
 
+    // Since we removed duplicate file names before starting these threads
+    // this logger name is guaranteed to be unique across runs.
+    std::shared_ptr<spdlog::logger> local_logger;
+    local_logger = spdlog::stdout_color_mt(path.string());
+    if(verbose)
+    {
+        local_logger->set_level(spdlog::level::debug); // Set local log level to debug
+    }
+    else
+    {
+        local_logger->set_level(spdlog::level::info);
+    }
+
+#ifdef _WIN32
     std::unique_ptr<unsigned char[]> safeBuf(new unsigned char[READCHUNK_SIZE]);
+#else
+    const std::align_val_t ALIGN_SIZE = std::align_val_t(512);
+    static auto del = [](unsigned char* p){operator delete[](p, ALIGN_SIZE);};
+    std::unique_ptr<unsigned char[], decltype(del)> safeBuf(new(ALIGN_SIZE) unsigned char[READCHUNK_SIZE]);
+#endif
     unsigned char* buf = safeBuf.get();
     if(!buf)
     {
-        std::cerr << "[-] Allocation failure" << std::endl;
+        local_logger->error("[-] Allocation failure");
         hexdigest = HASH_CANCELLED_STR;
         goto exit;
     }
@@ -158,19 +184,19 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
     switch(algorithm)
     {
     case MD5:
-        hasher = std::make_unique<c_md5>();
+        hasher = std::make_unique<c_md5>(local_logger);
         break;
     case SHA1:
-        hasher = std::make_unique<c_sha1>();
+        hasher = std::make_unique<c_sha1>(local_logger);
         break;
     case SHA256:
-        hasher = std::make_unique<c_sha256>();
+        hasher = std::make_unique<c_sha256>(local_logger);
         break;
     }
 
     if(nullptr == safeBuf.get())
     {
-        std::cerr << "[-] Allocation failure - hash object" << std::endl;
+        local_logger->error("[-] Allocation failure - hash object");
         hexdigest = HASH_FAILED_STR;
         goto exit;
     }
@@ -181,7 +207,7 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
     r_file = open(path.string().c_str(), O_RDONLY | O_DIRECT | O_BINARY);
     if(-1 == r_file)
     {
-        std::cerr << "[-] Error: " << std::strerror(errno) << " => File '" << path << "' failed to open" << std::endl;
+        local_logger->error("[-] OsErr: {} => File '{}' failed to open", std::strerror(errno), path.string());
         goto exit;
     }
 
@@ -196,17 +222,17 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
         switch (bytes_read)
         {
         case 0: // EOF
-            //std::cout << "[*] End of file reached => " << path << std::endl;
+            local_logger->debug("[*] End of file reached => {}", path.string());
             goto eof;
             break;
         case -1: // ERROR
-            std::cerr << "[-] Error: " << std::strerror(errno) << " => Failed to read from " << path << std::endl;
+            local_logger->error("[-] errno {} => Failed to read from '{}'", std::strerror(errno), path.string());
             hexdigest = HASH_FAILED_STR;
             goto exit;
             break;
         default:
             // More data to receive
-            // std::cout << "[*] Looping => " << path << std::endl;
+            // local_logger->debug("[*] More data to receive for => {}", path.string());
             break;
         }
         hasher->update(buf, bytes_read);
@@ -226,34 +252,30 @@ exit:
 
 void stop_tasks()
 {
-    std::cout << "[!] STOP ALL TASKS called" << std::endl;
+    spdlog::warn("[!] STOP ALL TASKS called");
     s_task_ended = true;
 }
 
 void set_log_path(const fs::path& path, bool log_successes)
 {
-    log_lock.lock();
-    s_logfile = fopen(path.string().c_str(), "w");
-    if(!s_logfile)
+    try
     {
-        std::cerr << "[-] Error: " << std::strerror(errno) << " => File '" << path << "' failed to open, no logging available for this run" << std::endl;
+        s_logfile = spdlog::basic_logger_mt<spdlog::async_factory>("async_file_logger", path.string());
+    }
+    catch (const spdlog::spdlog_ex &ex)
+    {
+        spdlog::error("[-] Error: {} => File '{}' failed to open, no logging available for this run", ex.what(), path.string());
         return;
     }
-    std::cout << "[+] Logging results to " << path << std::endl;
+    spdlog::info("[+] Logging results to {}", path.string());
     s_log_successes = log_successes;
-    log_lock.unlock();
+    s_logger_init = true;
 }
 
 void close_log()
 {
-    log_lock.lock();
-    if(s_logfile)
-    {
-        fflush(s_logfile);
-        fclose(s_logfile);
-        s_logfile = NULL;
-    }
-    log_lock.unlock();
+    s_logger_init = false;
+    s_logfile.reset();
 }
 
 void log_result(const fs::path& path, const std::string& expected, const std::string& actual)
@@ -263,25 +285,26 @@ void log_result(const fs::path& path, const std::string& expected, const std::st
     {
         return;
     }
-    log_lock.lock();
     if(actual != expected)
     {
-        std::cout << "[-] File '" << path << "' failed checksum" << std::endl;
-        std::cout << "    Expected: '" << expected << std::endl;
-        std::cout << "    Actual  : '" << actual << std::endl;
-        if(s_logfile)
+        spdlog::error("[-] File '{}' failed checksum\n" \
+        "\t\t\tExpected: '{}'\n" \
+        "\t\t\tActual  : '{}'", path.string(), expected, actual);
+        if(s_logger_init)
         {
-            fprintf(s_logfile, "[-] FAILURE =>\n\tFile     : %s\n\tExpected : %s\n\tActual   : %s\n", path.string().c_str(), expected.c_str(), actual.c_str());
-            fflush(s_logfile);
+            s_logfile->error("[-] FAILURE =>\n\t" \
+                "File     : {}\n\t" \
+                "Expected : {}\n\t" \
+                "Actual   : {}\n", path.string().c_str(), expected.c_str(), actual.c_str());
         }
     }
     else if(s_log_successes)
     {
-        if(s_logfile)
+        if(s_logger_init)
         {
-            fprintf(s_logfile, "[+] SUCCESS =>\n\tFile     : %s\n\tActual   : %s\n", path.string().c_str(), actual.c_str());
-            fflush(s_logfile);
+            s_logfile->info("[-] SUCCESS =>\n\t" \
+            "File     : {}\n\t" \
+            "Actual   : {}\n", path.string().c_str(), actual.c_str());
         }
     }
-    log_lock.unlock();
 }

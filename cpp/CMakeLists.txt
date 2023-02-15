@@ -27,6 +27,9 @@ set(CMAKE_CXX_STANDARD 20)
 
 project(diskhasher)
 
+# dependency - spdlog
+add_subdirectory(spdlog)
+
 # Check for OS version
 if("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
     set(IS_LINUX FALSE)
@@ -49,9 +52,9 @@ endif (IS_LINUX)
 if(IS_WINDOWS)
     message(STATUS "Compiling for Windows")
     #set(CMAKE_CXX_FLAGS "/Ox /incremental /GS- /Gy /fp:fast")
+    #set(CMAKE_CXX_FLAGS "/Oy- /incremental /GS- /Gy /fp:fast /Zi /EHsc")
+    #set(CMAKE_EXE_LINKER_FLAGS "/DEBUG /OPT:REF /OPT:ICF")
 endif(IS_WINDOWS)
-
-#
 
 # Output
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LIB_DIR})
@@ -76,15 +79,15 @@ set(NIX_SOURCES
 
 if(IS_LINUX)
     add_executable(${CMAKE_PROJECT_NAME} ${SOURCES} ${NIX_SOURCES})
-    target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/spdlog/include)
     message(STATUS "Linking for Linux")
     find_package(Threads REQUIRED)
-    target_link_libraries(${CMAKE_PROJECT_NAME} Threads::Threads)
+    target_link_libraries(${CMAKE_PROJECT_NAME} Threads::Threads spdlog)
 endif(IS_LINUX)
 
 if(IS_WINDOWS)
     add_executable(${CMAKE_PROJECT_NAME} ${SOURCES})
-    target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/spdlog/include)
     message(STATUS "Linking for Windows")
-    target_link_libraries(${CMAKE_PROJECT_NAME} Bcrypt)
+    target_link_libraries(${CMAKE_PROJECT_NAME} Bcrypt spdlog)
 endif(IS_WINDOWS)
