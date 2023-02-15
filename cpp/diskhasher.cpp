@@ -173,7 +173,7 @@ std::vector<pathstruct> parse_hashfile(const fs::path& filepath)
         }
     }
     infile.close();
-    spdlog::info("[*] {} hashes parsed", count);
+    spdlog::info("[*] Total: {} hashes parsed", count);
     return hashlist;
 }
 
@@ -210,7 +210,7 @@ pathvector recursive_dirwalk(const fs::path& root_dir)
             spdlog::debug("[*] {} directory items enumerated", count);
         }
     }
-
+    spdlog::debug("[*] Total: {} directory items enumerated", count);
     return all_files;
 }
 
@@ -358,6 +358,7 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
         {
             all_hashes.emplace_back(path, IGNORE_HASH_CHECK);
         });*/
+        // the lambda in std::for_each causes a double-free. Omit until later.
         for(const auto& path : all_files)
         {
             all_hashes.emplace_back(path, IGNORE_HASH_CHECK);
@@ -381,14 +382,13 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
 
     if(all_hashes.empty())
     {
-        // Nothing to do
         spdlog::error("[-] No hashes found, check your 'hashfile-name' parameter");
         print_usage();
         exit(1);
     }
 
-    spdlog::info("[*] Sorting files by file size, smallest first");
     // Then, just in case, remove duplicate entries: 1) Sort  2) Erase Duplicates
+    spdlog::info("[*] Sorting files by file size, smallest first");
     std::sort(all_hashes.begin(), all_hashes.end(), [](const pathstruct& a, const pathstruct& b) {
         return (a.filesize < b.filesize);
     });
@@ -452,114 +452,69 @@ cxxopts::ParseResult parse_cmdline_args(int argc, const char* argv[])
 }
 
 /**
- * @brief main
+ * @brief Start async tasks and get a vector of std::future for polling/awaiting
+ * @param cmdline_args The command line arguments to the program
+ * @param use_osapi_hash if True, attempt to use the built in Crypto module; if False, use the compiled in functions
+ * @param print_debug Print all available debug statements
+ * @return Vector of pending tasks that can be polled/awaited for results
  */
-#include <spdlog/sinks/stdout_color_sinks.h>
-extern "C"
-int main(int argc, const char* argv[])
+std::vector< std::future<pathpair> > start_tasks(const cxxopts::ParseResult& cmdline_args, bool use_osapi_hash, bool print_debug)
 {
-    // Create logger for the threads
-    auto console = spdlog::stdout_color_mt(THREADLOGGER_STR);
-    // Default logger - async console
-    spdlog::set_level(spdlog::level::info);
-    spdlog::set_pattern(SPDLOG_PATTERN);
-
-    std::vector< std::future<pathpair> > tasks;
-    cxxopts::ParseResult cmdline_args = parse_cmdline_args(argc, argv);
-    bool use_osapi_hash = true;
-    bool verbose = false;
-    bool print_debug = false;
-
-    if(cmdline_args.count("v") || cmdline_args.count("verbose"))
-    {
-        verbose = true;
-        if(cmdline_args.count("v") >= 2)
-        {
-            spdlog::set_level(spdlog::level::debug); // Set global log level to debug
-            print_debug = true;
-        }
-    }
-    else
-    {
-        spdlog::warn("[!] Only displaying failed checksums, re-run with '-v' | '-verbose' to see all hashes");
-    }
-
-#ifdef _WIN32 // register signal handlers
-    if (!SetConsoleCtrlHandler(ctrl_c_handler, TRUE))
-    {
-        spdlog::critical("[-] Could not set control handler");
-        exit(EXIT_FAILURE);
-    }
-#else
-    std::signal(SIGINT, ctrl_c_handler);
+#ifndef _WIN32
     // Linux set ulimit to allow for a really huge disk
     // Get the current file limits for later on below.
     struct rlimit limit;
     if (getrlimit(RLIMIT_NOFILE, &limit) != 0)
     {
-        spdlog::critical("[-] getrlimit() failed with errno={}", errno);
-        return 1;
+        spdlog::critical("[-] getrlimit() failed with errno={} ({})", errno, std::strerror(errno));
+        exit(1);
     }
     spdlog::debug("[+] Current limit on open files: {}", limit.rlim_cur);
     spdlog::debug("[+] Maximum limit on open files: {}", limit.rlim_max);
-#endif // REGISTER SIGNAL HANDLERS
+#endif // not _WIN32
 
-    if(cmdline_args.count("n") || cmdline_args.count("no-osapi-hash"))
-    {
-        spdlog::info("[*] Forcing the use of built-in hashing algorithm");
-        use_osapi_hash = false;
-    }
+    auto hashalg = get_hashalg(cmdline_args);
+    auto all_hashes = load_hashes(cmdline_args);
+    size_t num_files = all_hashes.size();
+    spdlog::info("[+] Computing and checking {} file hashes", num_files);
 
-    spdlog::info("[*] {} cores available for processing", std::thread::hardware_concurrency());
-    { // A scope for all_hashes
-        auto hashalg = get_hashalg(cmdline_args);
-        auto all_hashes = load_hashes(cmdline_args);
-        size_t num_files = all_hashes.size();
-        spdlog::info("[+] Computing and checking {} file hashes", num_files);
 #ifndef _WIN32
-        if((size_t)(limit.rlim_cur) < num_files || (size_t)(limit.rlim_max) < num_files)
+    // increase, if possible, the number of concurrent open files
+    if((size_t)(limit.rlim_cur) < num_files || (size_t)(limit.rlim_max) < num_files)
+    {
+        // check for sudo
+        if(geteuid() == 0)
         {
-            // check for sudo
-            if(geteuid() == 0)
+            limit.rlim_cur = num_files * 2;
+            limit.rlim_max = num_files * 2;
+            if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
             {
-                limit.rlim_cur = num_files * 2;
-                limit.rlim_max = num_files * 2;
-                if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
-                {
-                    spdlog::critical("[-] setrlimit() failed with errno={}", errno);
-                    return 1;
-                }
+                spdlog::critical("[-] setrlimit() failed with errno={}", errno);
+                exit(1);
             }
         }
-        set_hash_concurrency_limit(std::min(num_files, limit.rlim_cur));
-#else
-        // TODO: Windows RLIMIT-equivalent task here if necessary
+    }
+    set_hash_concurrency_limit(std::min(num_files, limit.rlim_cur));
 #endif
-        /*std::for_each(all_hashes.begin(), all_hashes.end(),
-        [&](const pathstruct& s)
-        {
-            tasks.emplace_back(std::async(std::launch::async, hash_file_thread_func,
-                                          s.path, hashalg, s.hash, use_osapi_hash));
-        });*/
-        // the lambda in std::for_each causes a double-free. Omit until later.
-        for(const auto& s : all_hashes)
-        {
-            tasks.emplace_back(std::async(std::launch::async, hash_file_thread_func,
-                                          s.path, hashalg, s.hash, use_osapi_hash, print_debug));
-        }
-    }
 
-    // Wait for and process results - the benefit of the std::sort() above is that, by sorting
-    // on file size, we get results faster on the vast majority of the files. Less blocking
-    // on big files in lieu of smaller ones.
-    size_t numFiles = tasks.size();
-    if(numFiles == 0)
+    std::vector< std::future<pathpair> > tasks;
+    for(const auto& s : all_hashes)
     {
-        spdlog::info("[+] Done: No files to process");
-        close_log();
-        return 0;
+        tasks.emplace_back(std::async(std::launch::async, hash_file_thread_func,
+                                        s.path, hashalg, s.hash, use_osapi_hash, print_debug));
     }
+    return tasks;
+}
 
+/**
+ * @brief Start async tasks and get a vector of std::future for polling/awaiting
+ * @param tasks std::future vector of pending tasks to poll
+ * @param numFiles number of tasks/files being hashed
+ * @param verbose Print all available debug statements
+ * @return Vector of pending tasks that can be polled/awaited for results
+ */
+void wait_on_tasks(std::vector< std::future<pathpair> >& tasks, size_t numFiles, bool verbose)
+{
     double progressAmt = (1.0 / (double)numFiles) * 100;
     double totalProgress = 0.0;
     size_t approxFivePct = numFiles / 20;
@@ -605,7 +560,71 @@ int main(int argc, const char* argv[])
             }
         }
     }
+}
 
+/**
+ * @brief main
+ */
+extern "C"
+int main(int argc, const char* argv[])
+{
+    // Create logger for the threads
+    auto console = spdlog::stdout_color_mt(THREADLOGGER_STR);
+    // Default logger - async console
+    spdlog::set_level(spdlog::level::info);
+    spdlog::set_pattern(SPDLOG_PATTERN);
+
+    cxxopts::ParseResult cmdline_args = parse_cmdline_args(argc, argv);
+    bool use_osapi_hash = true;
+    bool verbose = false;
+    bool print_debug = false;
+
+    if(cmdline_args.count("v") || cmdline_args.count("verbose"))
+    {
+        verbose = true;
+        if(cmdline_args.count("v") >= 2)
+        {
+            spdlog::set_level(spdlog::level::debug); // Set global log level to debug
+            print_debug = true;
+        }
+    }
+    else
+    {
+        spdlog::warn("[!] Only displaying failed checksums, re-run with '-v' | '-verbose' to see all hashes");
+    }
+
+    if(cmdline_args.count("n") || cmdline_args.count("no-osapi-hash"))
+    {
+        spdlog::info("[*] Forcing the use of built-in hashing algorithm");
+        use_osapi_hash = false;
+    }
+
+    // register Ctrl-C signal handlers
+#ifdef _WIN32
+    if (!SetConsoleCtrlHandler(ctrl_c_handler, TRUE))
+    {
+        spdlog::critical("[-] Could not set control handler");
+        exit(EXIT_FAILURE);
+    }
+#else
+    std::signal(SIGINT, ctrl_c_handler);
+#endif // REGISTER SIGNAL HANDLERS
+
+    spdlog::info("[*] {} cores available for processing", std::thread::hardware_concurrency());
+
+    auto tasks = start_tasks(cmdline_args, use_osapi_hash, print_debug);
+    // Wait for and process results - the benefit of the std::sort() above is that, by sorting
+    // on file size, we get results faster on the vast majority of the files. Less blocking
+    // on big files in lieu of smaller ones.
+    size_t numFiles = tasks.size();
+    if(numFiles == 0)
+    {
+        spdlog::info("[+] Done: No files to process");
+        close_log();
+        return 0;
+    }
+
+    wait_on_tasks(tasks, numFiles, verbose);
     spdlog::info("[+] Done");
     close_log();
     destroy_hash_concurrency_limit();

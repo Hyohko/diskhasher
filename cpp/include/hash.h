@@ -35,9 +35,6 @@
 #include "sha1.h"
 #include "sha256.h"
 
-#include <spdlog/spdlog.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
-
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 /**
 * @class hash
