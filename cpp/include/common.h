@@ -48,6 +48,14 @@
 #include <thread>
 #include <vector>
 
+#include <spdlog/spdlog.h>
+#include <spdlog/async.h>
+#include <spdlog/sinks/basic_file_sink.h>
+
+// #define SPDLOG_PATTERN "[%H:%M:%S] [%n] [%^---%L---%$] [thread %t] %v"
+#define SPDLOG_PATTERN      "[%H:%M:%S] [%^%=8l%$] %v"
+#define THREADLOGGER_STR    "threadlogger"
+
 namespace fs = std::filesystem;
 
 typedef std::pair<std::string,std::uintmax_t> filepair;

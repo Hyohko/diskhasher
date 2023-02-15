@@ -67,7 +67,7 @@ set(SOURCES
     sha1.c
     sha256.c
     diskhasher.cpp
-    hash.cpp
+    filehash.cpp
     hashclass.cpp
 )
 

@@ -41,12 +41,8 @@
 */
 
 #include "common.h"
-#include "hash.h"
+#include "filehash.h"
 #include "cxxopts.hpp"
-#include <spdlog/spdlog.h>
-
-// #define SPDLOG_PATTERN "[%H:%M:%S] [%n] [%^---%L---%$] [thread %t] %v"
-#define SPDLOG_PATTERN "[%H:%M:%S] [%^%=8l%$] %v"
 
 // Helper struct for pre-computing the file sizes, greatly speeding up
 // std::sort's lambda function
@@ -462,6 +458,8 @@ cxxopts::ParseResult parse_cmdline_args(int argc, const char* argv[])
 extern "C"
 int main(int argc, const char* argv[])
 {
+    // Create logger for the threads
+    auto console = spdlog::stdout_color_mt(THREADLOGGER_STR);
     // Default logger - async console
     spdlog::set_level(spdlog::level::info);
     spdlog::set_pattern(SPDLOG_PATTERN);

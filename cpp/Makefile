@@ -28,6 +28,9 @@ MAKEFLAGS += -j8
 INC=-I./include -I./spdlog/include
 CC := gcc
 CCX := g++
+
+#COMMONFLAGS := -g -fsanitize=address -O0 -Wall -Wextra -Wconversion \
+
 COMMONFLAGS := -g -Ofast -Wall -Wextra -Wconversion \
 	-fpic -ffunction-sections -fdata-sections \
 	-flto -D_GLIBCXX_PARALLEL -march=native $(INC)
@@ -38,7 +41,7 @@ LDFLAGS = -Wl,--gc-sections -pie
 LIBS = -pthread
 
 SRCS = md5.c sha1.c sha256.c kcapi-kernel-if.c kcapi-md.c kcapi-utils.c
-SRCS_CPP = diskhasher.cpp hash.cpp hashclass.cpp
+SRCS_CPP = diskhasher.cpp filehash.cpp hashclass.cpp
 
 OBJS = $(SRCS:.c=.o)
 OBJS_CPP = $(SRCS_CPP:.cpp=.o)
@@ -63,7 +66,7 @@ clang: $(MAIN)
 $(MAIN): $(OBJS) $(OBJS_CPP)
 	$(CCX) $(CXXFLAGS) $(CXXFINALFLAGS) $(INCLUDES) $(LDFLAGS) $(LIBS) \
 	-o $(MAIN) $(OBJS) $(OBJS_CPP)
-	strip --strip-all $(MAIN)
+# strip --strip-all $(MAIN)
 
 .c.o:
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@

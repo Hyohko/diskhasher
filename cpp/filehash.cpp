@@ -31,9 +31,8 @@
 #define SPDLOGGER 1
 
 #include "common.h"
-#include "hash.h"
+#include "filehash.h"
 #include "hashclass.h"
-#include <spdlog/spdlog.h>
 
 /**
  * @brief Atomically log the results of the hashing to stdout. If a log file has been opened
@@ -47,8 +46,7 @@ static void log_result(const fs::path& path, const std::string& expected, const 
 
 static std::atomic_bool s_task_ended(false);
 static bool s_log_successes = false;
-#include <spdlog/async.h>
-#include <spdlog/sinks/basic_file_sink.h>
+
 std::shared_ptr<spdlog::logger> s_logfile;
 bool s_logger_init = false;
 
@@ -109,18 +107,11 @@ void destroy_hash_concurrency_limit()
 
 void run_hash_tests()
 {
-    //if(osapi_hashing_available())
-    //{
-    //    spdlog::info("[+] OS API for hashing is available");
-    //}
-    //else
-    {
-        spdlog::info("[+] Running self tests using FIPS-180 test vectors");
-        md5_self_test(1);
-        sha1_self_test(1);
-        sha256_self_test(1);
-        spdlog::info("[+] Self test complete");
-    }
+    spdlog::info("[+] Running self tests using FIPS-180 test vectors");
+    md5_self_test(1);
+    sha1_self_test(1);
+    sha256_self_test(1);
+    spdlog::info("[+] Self test complete");
 }
 
 /*
@@ -153,10 +144,8 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
     std::string hexdigest;
     int r_file = -1;
 
-    // Since we removed duplicate file names before starting these threads
-    // this logger name is guaranteed to be unique across runs.
-    std::shared_ptr<spdlog::logger> local_logger;
-    local_logger = spdlog::stdout_color_mt(path.string());
+    // Get dedicated thread logger object from logger registry
+    std::shared_ptr<spdlog::logger> local_logger = spdlog::get(THREADLOGGER_STR);
     if(verbose)
     {
         local_logger->set_level(spdlog::level::debug); // Set local log level to debug
