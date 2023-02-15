@@ -68,7 +68,7 @@ set(SOURCES
     sha256.c
     diskhasher.cpp
     filehash.cpp
-    hashclass.cpp
+    hash.cpp
 )
 
 set(NIX_SOURCES

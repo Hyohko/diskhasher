@@ -32,7 +32,7 @@
 
 #include "common.h"
 #include "filehash.h"
-#include "hashclass.h"
+#include "hash.h"
 
 /**
  * @brief Atomically log the results of the hashing to stdout. If a log file has been opened

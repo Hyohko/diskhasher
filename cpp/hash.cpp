@@ -25,7 +25,7 @@
 */
 
 #include "common.h"
-#include "hashclass.h"
+#include "hash.h"
 #include <spdlog/spdlog.h>
 #include <spdlog/fmt/bin_to_hex.h>
 
