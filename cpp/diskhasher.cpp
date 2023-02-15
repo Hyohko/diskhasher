@@ -537,11 +537,13 @@ void wait_on_tasks(std::vector< std::future<pathpair> >& tasks, size_t numFiles,
         catch( const std::exception& e )
         {
             spdlog::warn("[!] Exception caught while attempting to retrieve path pair from std::future => {}", e.what());
+            continue;
         }
 
         if(pair.second == HASH_CANCELLED_STR || pair.second == HASH_FAILED_STR)
         {
-            spdlog::info("({}%)[!] {} => {}", (int)totalProgress, pair.second, pair.first.string());
+            if(verbose)
+                spdlog::info("({}%)[!] {} => {}", (int)totalProgress, pair.second, pair.first.string());
         }
         else
         {
