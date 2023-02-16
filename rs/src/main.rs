@@ -136,10 +136,13 @@ fn main() {
         "[+] Checking hashes - spinning up {} worker threads",
         pool.max_count()
     );
+
+    let num_files: usize = checked_files.len();
     for ck in checked_files {
         if !&expected_hashes.contains_key(&ck.path) {
             if !args.force {
                 println!("[!] {:?} => No hash found", &ck.path);
+                increment_hashcount();
                 continue;
             }
         }
@@ -150,12 +153,20 @@ fn main() {
             .to_string();
 
         pool.execute(move || {
-            perform_hash(expected_fdata, args.algorithm, args.force, args.verbose).unwrap();
+            perform_hash(
+                expected_fdata,
+                args.algorithm,
+                args.force,
+                args.verbose,
+                num_files,
+            )
+            .unwrap();
         });
     }
 
     // Wait for all threads to finish
     pool.join();
+    hashcount_monitor(num_files);
     println!("[+] Done");
 }
 

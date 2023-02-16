@@ -35,6 +35,7 @@ use {
     std::fs::File,
     std::io::{BufRead, BufReader, Read},
     std::path::{Path, PathBuf},
+    std::sync::atomic::{AtomicUsize, Ordering},
     std::thread,
     threadpool::ThreadPool,
     walkdir::WalkDir,
@@ -282,13 +283,13 @@ pub fn load_hashes(
 // interfaces
 fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
     match alg {
-        //HashAlg::MD5 => Box::new(md5::Md5::default()),
+        HashAlg::MD5 => Box::new(md5::Md5::default()),
         HashAlg::SHA1 => Box::new(sha1::Sha1::default()),
         HashAlg::SHA224 => Box::new(sha2::Sha224::default()),
         HashAlg::SHA256 => Box::new(sha2::Sha256::default()),
         HashAlg::SHA384 => Box::new(sha2::Sha384::default()),
         HashAlg::SHA512 => Box::new(sha2::Sha512::default()),
-        _ => unimplemented!("unsupported digest: {}", alg),
+        // _ => unimplemented!("unsupported digest: {}", alg),
     }
 }
 
@@ -320,6 +321,31 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+static mut HASHES_COMPLETE: AtomicUsize = AtomicUsize::new(1);
+pub fn increment_hashcount() {
+    unsafe {
+        HASHES_COMPLETE.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+pub fn hashcount_monitor(total_files: usize) {
+    if total_files == 0 {
+        println!("[!] No files to hash");
+        return;
+    }
+    let curr_hashes: usize = unsafe { HASHES_COMPLETE.load(Ordering::SeqCst) };
+    let pct_complete: f64 = ((curr_hashes) as f64 / (total_files) as f64) * 100.0;
+    if curr_hashes % 500 == 0 {
+        println!("[*] ({}%) {} hashes complete", pct_complete, curr_hashes);
+    }
+    if curr_hashes == total_files {
+        println!(
+            "[*] ({}%) {} hashes complete\n[+] No more files to hash",
+            pct_complete, curr_hashes
+        );
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////
 /// Thread function that opens file, hashes, and compares with expected hash
 pub fn perform_hash(
@@ -327,40 +353,37 @@ pub fn perform_hash(
     alg: HashAlg,
     force: bool,
     verbose: bool,
+    num_files: usize,
 ) -> Result<bool, String> {
+    let success: bool;
+    increment_hashcount();
     let actual_hash = hash_file(&fdata.path, alg)?;
     if force {
         println!(
             "[*] Checksum value : {:?}\n\tHash         : {:?}",
             &fdata.path, actual_hash
         );
-        return Ok(true);
-    }
-
-    // Compare
-    let success: bool = &fdata.expected_hash == &actual_hash;
-    if success {
-        if verbose {
+        success = true;
+    } else {
+        // Compare
+        success = &fdata.expected_hash == &actual_hash;
+        if success {
+            if verbose {
+                println!(
+                    "[+] Checksum passed: {:?}\n\tActual hash  : {:?}",
+                    &fdata.path, actual_hash
+                );
+            }
+        } else {
             println!(
-                "[+] Checksum passed: {:?}\n\tActual hash  : {:?}",
-                &fdata.path, actual_hash
+                "[-] Checksum failed: {:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",
+                &fdata.path, &fdata.expected_hash, actual_hash
             );
         }
-    } else {
-        println!(
-            "[-] Checksum failed: {:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",
-            &fdata.path, &fdata.expected_hash, actual_hash
-        );
     }
+    hashcount_monitor(num_files);
     Ok(success)
 }
-
-/*pub fn partition_files(all_files: &Vec<FileData>, hash_regex: Regex) -> (Vec<FileData>, Vec<FileData>) {
-    let (hashfiles, checked_files) : (Vec<FileData>, Vec<FileData>) = all_files
-        .into_iter()
-        .partition( |f| hash_regex.is_match(f.path.file_name().unwrap().to_str().unwrap()) );
-    (hashfiles, checked_files)
-}*/
 
 ///////////////////////////////////////////////////////////////////////////////
 /// TESTS
