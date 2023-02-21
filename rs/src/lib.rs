@@ -49,7 +49,8 @@ pub struct FileData {
     pub expected_hash: String,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+//#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum HashAlg {
     MD5,
     SHA1,
@@ -100,7 +101,6 @@ pub fn recursive_dir(abs_root_path: &Path) -> Result<Vec<FileData>, String> {
                 Ok(f) => f.len(),
                 Err(_e) => continue,
             };
-            //println!("[*] File {}", path.display());
             file_vec.push(FileData {
                 size,
                 path: path.to_path_buf(),
@@ -224,10 +224,10 @@ fn load_hashes_single(
             path.display(),
             err
         ));
-    });
+    })?;
 
     // Read file
-    let reader = BufReader::new(file.unwrap());
+    let reader = BufReader::new(file);
     let mut num_lines: i32 = 0;
     for line in reader.lines() {
         let newline = line.or_else(|err| {
@@ -236,12 +236,18 @@ fn load_hashes_single(
                 path.display(),
                 err
             ));
-        });
+        })?;
 
         let (hashval, canonical_path) =
-            match split_hashfile_line(&newline.unwrap(), &hashpath /*regex_pattern*/) {
+            match split_hashfile_line(&newline, &hashpath /*regex_pattern*/) {
                 Ok(v) => v,
-                Err(_e) => continue, //return Err(_e),
+                Err(_e) => {
+                    println!(
+                        "[!] Failed to parse {}, ignore and continue parsing",
+                        newline
+                    );
+                    continue;
+                } //return Err(_e),
             };
         hashmap.insert(canonical_path, hashval);
         num_lines += 1;
@@ -302,16 +308,14 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, String> {
     // open file and read data into heap-based buffer
     const BUFSIZE: usize = 1024 * 1024 * 2; // 2 MB
     let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
-    let file_result = File::open(path).or_else(|err| {
+    let mut file = File::open(path).or_else(|err| {
         return Err(format!("{}: Unable to open file", err));
-    });
+    })?;
 
     loop {
-        let mut file = file_result.as_ref().unwrap();
-        let read_result = file.read(&mut buffer[..BUFSIZE]).or_else(|err| {
+        let read_count = file.read(&mut buffer[..BUFSIZE]).or_else(|err| {
             return Err(format!("{}: Read failure", err));
-        });
-        let read_count = read_result.unwrap();
+        })?;
         hasher.update(&buffer[..read_count]);
         if read_count < BUFSIZE {
             break;

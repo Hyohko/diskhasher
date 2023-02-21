@@ -111,7 +111,10 @@ fn main() {
                 println!("[-] Failed to retrieve file name from path object");
                 process::exit(1);
             });
-            hash_regex.is_match(str_path.to_str().unwrap())
+            hash_regex.is_match(str_path.to_str().unwrap_or_else(|| {
+                println!("[-] Path string failed to parse");
+                process::exit(1);
+            }))
         });
 
     println!("[+] Loading expected hashes from {:?}", hashfiles);
@@ -160,7 +163,10 @@ fn main() {
                 args.verbose,
                 num_files,
             )
-            .unwrap();
+            .unwrap_or_else(move |_| {
+                println!("[!] Failed to start thread for {}", &ck.path.display());
+                true
+            });
         });
     }
 
