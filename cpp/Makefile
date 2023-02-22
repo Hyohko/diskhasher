@@ -32,6 +32,8 @@ CCX := g++
 #COMMONFLAGS := -g -fsanitize=address -O0 -Wall -Wextra -Wconversion \
 
 COMMONFLAGS := -g -Ofast -Wall -Wextra -Wconversion \
+	-pipe -fomit-frame-pointer \
+	-msse -msse2 -msse3 -mmmx -m3dnow \
 	-fpic -ffunction-sections -fdata-sections \
 	-flto -D_GLIBCXX_PARALLEL -march=native $(INC)
 CFLAGS := $(COMMONFLAGS) -frename-registers -fopenmp

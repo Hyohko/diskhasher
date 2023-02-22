@@ -31,10 +31,11 @@ version = "0.0.1"
 edition = "2021"
 
 [profile.release]
-lto = "fat" #true
+lto = true # "fat" was former option
 codegen-units = 1
 strip = true
 panic = "abort"
+opt-level = 3 # "s" binary size, omit for speed
 
 [dependencies]
 #clap = { version = "3.2.16", features = ["derive"] }

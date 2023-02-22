@@ -46,6 +46,8 @@ if(IS_LINUX)
     message(STATUS "Compiling for Linux")
     set(CMAKE_CXX_FLAGS "-Wall -g -Ofast -std=c++2a -fPIC -ffunction-sections \
                         -fdata-sections -frename-registers -flto -fopenmp \
+                        -pipe -fomit-frame-pointer \
+	                    -msse -msse2 -msse3 -mmmx -m3dnow \
                         -D_GLIBCXX_PARALLEL -Wl,--gc-sections -s -march=native")
 endif (IS_LINUX)
 
