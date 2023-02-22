@@ -340,11 +340,11 @@ pub fn hashcount_monitor(total_files: usize) {
     let curr_hashes: usize = unsafe { HASHES_COMPLETE.load(Ordering::SeqCst) };
     let pct_complete: f64 = ((curr_hashes) as f64 / (total_files) as f64) * 100.0;
     if curr_hashes % 500 == 0 {
-        println!("[*] ({}%) {} hashes complete", pct_complete, curr_hashes);
+        println!("[*] ({:.2}%) {} hashes complete", pct_complete, curr_hashes);
     }
     if curr_hashes == total_files {
         println!(
-            "[*] ({}%) {} hashes complete\n[+] No more files to hash",
+            "[*] ({:.2}%) {} hashes complete\n[+] No more files to hash",
             pct_complete, curr_hashes
         );
     }
