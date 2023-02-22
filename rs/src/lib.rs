@@ -94,22 +94,24 @@ pub fn recursive_dir(abs_root_path: &Path) -> Result<Vec<FileData>, String> {
     for entry in WalkDir::new(abs_root_path)
         .into_iter()
         .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
     {
-        if entry.file_type().is_file() {
-            let path = entry.path();
-            let size: u64 = match path.metadata() {
-                Ok(f) => f.len(),
-                Err(_e) => continue,
-            };
-            file_vec.push(FileData {
-                size,
-                path: path.to_path_buf(),
-                expected_hash: "".to_string(),
-            });
-            files_added += 1;
-            if files_added % 500 == 0 {
-                println!("[*] {} files to be hashed", files_added);
-            }
+        let path = entry.path();
+        let size: u64 = match path.metadata() {
+            Ok(f) => f.len(),
+            Err(_e) => {
+                println!("[!] Failed to get metadata for {}", path.display());
+                continue;
+            } // No error for now, keep processing
+        };
+        file_vec.push(FileData {
+            size,
+            path: path.to_path_buf(),
+            expected_hash: "".to_string(),
+        });
+        files_added += 1;
+        if files_added % 500 == 0 {
+            println!("[*] {} files to be hashed", files_added);
         }
     }
     // Sort vector by file size, smallest first
