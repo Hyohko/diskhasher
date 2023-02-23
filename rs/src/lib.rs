@@ -25,10 +25,10 @@
 */
 
 use {
-    clap::ValueEnum,
+    clap::{Parser, ValueEnum},
     digest::DynDigest,
     hex,
-    // regex::Regex,
+    regex::Regex,
     std::collections::HashMap,
     std::fmt::{self, Display, Formatter},
     std::fs,
@@ -71,6 +71,31 @@ impl Display for HashAlg {
             Self::SHA512 => write!(f, "SHA512"),
         }
     }
+}
+
+#[derive(Parser)]
+#[clap(
+    author,
+    version,
+    about = "Hash a directory's files and optionally check against existing hashfile"
+)]
+pub struct Arguments {
+    /// Path to the directory we want to validate
+    #[clap(short, long)]
+    pub directory: String,
+    /// Algorithm to use (SHA1, SHA256)
+    #[clap(short, long)]
+    #[arg(value_enum)]
+    pub algorithm: HashAlg,
+    /// Regex pattern used to identify hashfiles
+    #[clap(short, long)]
+    pub pattern: Option<String>,
+    /// Force computation of hashes even if hash pattern fails or is omitted
+    #[clap(short, long, action)]
+    pub force: bool,
+    /// Print all results to stdout
+    #[clap(short, long, action)]
+    pub verbose: bool,
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -283,7 +308,6 @@ pub fn load_hashes(
     Ok(hash_vec)
 }
 
-//use md5::Md5;
 ////////////////////////////////////////////////////////////////////////////////////////
 // You can use something like this when parsing user input, CLI arguments, etc.
 // DynDigest needs to be boxed here, since function return should be sized.
@@ -323,17 +347,20 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, String> {
             break;
         }
     }
-
     Ok(hex::encode(hasher.finalize()))
 }
 
 static mut HASHES_COMPLETE: AtomicUsize = AtomicUsize::new(1);
+////////////////////////////////////////////////////////////////////////////////////////
+/// Thread safe function called whenever a hash has been computed
 pub fn increment_hashcount() {
     unsafe {
         HASHES_COMPLETE.fetch_add(1, Ordering::SeqCst);
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
+/// Thread safe function that prints out how many files are left to be hashed
 pub fn hashcount_monitor(total_files: usize) {
     if total_files == 0 {
         println!("[!] No files to hash");
@@ -391,6 +418,102 @@ pub fn perform_hash(
     Ok(success)
 }
 
+////////////////////////////////////////////////////////////////////////////////////////
+/// Checks to see if a file path matches a regular expression
+fn path_matches_regex(hash_regex: &Regex, file_path: &PathBuf) -> bool {
+    let str_path = match file_path.file_name() {
+        Some(v) => v,
+        None => {
+            println!("[-] Failed to retrieve file name from path object");
+            return false;
+        }
+    };
+    let is_match = hash_regex.is_match(match str_path.to_str() {
+        Some(v) => v,
+        None => {
+            println!("[-] Path string failed to parse");
+            return false;
+        }
+    });
+    is_match
+}
+
+////////////////////////////////////////////////////////////////////////////////////////
+/// Given a thread pool, start hashing all files based on hashes in a hash file
+pub fn start_hash_threads(
+    pool: &mut ThreadPool,
+    all_files: Vec<FileData>,
+    hash_regex: &Regex,
+    args: Arguments,
+) -> Result<usize, String> {
+    const EMPTY_STRING: String = String::new();
+    let num_files: usize;
+    let checked_files: Vec<FileData>;
+    let expected_hashes: HashMap<PathBuf, String>;
+    {
+        // Scope so hashfiles drops once it is finished being processed
+        println!("[+] Identifying hashfiles");
+        let hashfiles: Vec<FileData>;
+        (hashfiles, checked_files) = all_files
+            .into_iter()
+            .partition(|f| path_matches_regex(hash_regex, &f.path));
+
+        println!("[+] Loading expected hashes from {:?}", hashfiles);
+        expected_hashes = match load_hashes(&hashfiles, checked_files.len()) {
+            Ok(v) => v,
+            Err(_e) => {
+                if args.force {
+                    println!("[!*] No hashes available: {}", _e);
+                    println!("[*] --force called, computing hashes anyway");
+                    HashMap::<PathBuf, String>::new()
+                } else {
+                    return Err(format!("[!*] No hashes available: {}", _e));
+                }
+            }
+        };
+        // End hashfiles scope
+    }
+
+    // load expected hash value into each checked_files entry
+    // since checked_files is in file-size order (smallest to largest)
+    // this function should process the very smallest files first
+    println!(
+        "[+] Checking hashes - spinning up {} worker threads",
+        pool.max_count()
+    );
+
+    num_files = checked_files.len();
+    for ck in checked_files {
+        if !&expected_hashes.contains_key(&ck.path) {
+            if !args.force {
+                println!("[!] {:?} => No hash found", &ck.path);
+                increment_hashcount();
+                continue;
+            }
+        }
+        let mut expected_fdata: FileData = ck.clone();
+        expected_fdata.expected_hash = expected_hashes
+            .get(&ck.path)
+            .unwrap_or(&EMPTY_STRING)
+            .to_string();
+
+        pool.execute(move || {
+            perform_hash(
+                expected_fdata,
+                args.algorithm,
+                args.force,
+                args.verbose,
+                num_files,
+            )
+            .unwrap_or_else(move |_| {
+                println!("[!] Failed to start thread for {}", &ck.path.display());
+                true
+            });
+        });
+    }
+    // end checked_files and expected_hashes scope
+    Ok(num_files)
+}
 ///////////////////////////////////////////////////////////////////////////////
 /// TESTS
 ///////////////////////////////////////////////////////////////////////////////
