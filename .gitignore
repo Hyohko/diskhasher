@@ -7,6 +7,8 @@ build/
 .vscode/
 CMakeFiles/
 libkcapi/
+winbuild/
+md5sum.txt
 
 # from libkcapi
 Makefile.in

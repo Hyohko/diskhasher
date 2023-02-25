@@ -41,7 +41,7 @@
 */
 
 #include "common.h"
-#include "hash.h"
+#include "filehash.h"
 #include "cxxopts.hpp"
 
 // Helper struct for pre-computing the file sizes, greatly speeding up
@@ -70,7 +70,7 @@ static bool s_ctrl_c = false;
 #ifdef _WIN32
 BOOL WINAPI ctrl_c_handler(DWORD signum)
 {
-    std::cout << "[*] Terminating hashing threads, closing down gracefully..." << std::endl;
+    spdlog::warn("[*] Terminating hashing threads, closing down gracefully...");
     stop_tasks();
     s_ctrl_c = true;
     return TRUE;
@@ -78,7 +78,7 @@ BOOL WINAPI ctrl_c_handler(DWORD signum)
 #else
 void ctrl_c_handler([[maybe_unused]] int signum)
 {
-    std::cout << "[*] Terminating hashing threads, closing down gracefully..." << std::endl;
+    spdlog::warn("[*] Terminating hashing threads, closing down gracefully...");
     stop_tasks();
     s_ctrl_c = true;
 }
@@ -111,6 +111,16 @@ void print_usage()
     std::cout << usage << std::endl;
 }
 
+std::string& ltrim(std::string &s)
+{
+    auto it = std::find_if(s.begin(), s.end(),
+                    [](char c) {
+                        return !std::isspace<char>(c, std::locale::classic());
+                    });
+    s.erase(s.begin(), it);
+    return s;
+}
+
 /**
  * @brief Parse a checksum file / hashfile, split each line containing a cryptographic
  * checksum and a relative path to a file
@@ -119,25 +129,25 @@ void print_usage()
 */
 std::vector<pathstruct> parse_hashfile(const fs::path& filepath)
 {
-	std::cout << "[+] Parsing hashfile " << filepath << std::endl;
+	spdlog::info("[+] Parsing hashfile {}", filepath.string());
     std::ifstream infile(filepath);
     std::vector<pathstruct> hashlist;
     std::string line;
+    size_t count = 0;
 
+    std::string hash, filename;
+    filename.reserve(512);
+    hash.reserve(512);
     while (std::getline(infile, line))
     {
         std::istringstream iss(line);
-        std::string hash, filename, word;
-        if (!(iss >> hash >> filename)) {
-			std::cerr << "[-] Could not parse line" << std::endl;
+        if (!(iss >> hash)) {
+			spdlog::error("[-] Could not parse line");
 			break;
 		} // error
 
-        while (iss >> word)
-        {
-            filename += " ";
-            filename += word;
-        }
+        std::getline(iss, filename);
+        ltrim(filename);
 
         if (filename.rfind("./", 0) == 0)
         {
@@ -146,13 +156,23 @@ std::vector<pathstruct> parse_hashfile(const fs::path& filepath)
         fs::path target = filepath.parent_path() / filename;
         if(!fs::exists(target))
         {
-            std::cerr << "[!] File " << target << " does not exist on disk" << std::endl;
+            spdlog::error("[!] File {} does not exist on disk", target.string());
         }
         else
         {
             hashlist.emplace_back(target, hash);
         }
+        count++;
+        if(count % 500 == 0)
+        {
+            spdlog::info("[*] {} hashes parsed", count);
+        }
+        if(s_ctrl_c)
+        {
+            break;
+        }
     }
+    spdlog::info("[*] Total: {} hashes parsed", count);
     infile.close();
     return hashlist;
 }
@@ -166,18 +186,31 @@ std::vector<pathstruct> parse_hashfile(const fs::path& filepath)
 pathvector recursive_dirwalk(const fs::path& root_dir)
 {
     pathvector all_files;
+    size_t count = 0;
     for(auto& itEntry : fs::recursive_directory_iterator(root_dir))
     {
+        try
+        {
+            if(itEntry.is_regular_file())
+            {
+                all_files.emplace_back(itEntry.path());
+            }
+        }
+        catch(fs::filesystem_error const& e)
+        {
+            spdlog::error("[-] ({}) '{}' is not a regular file", e.what(), itEntry.path().string());
+        }
+        count++;
+        if(count % 500 == 0)
+        {
+            spdlog::debug("[*] {} directory items enumerated", count);
+        }
         if(s_ctrl_c)
         {
             break;
         }
-        if(itEntry.is_regular_file())
-        {
-            all_files.emplace_back(itEntry.path());
-        }
     }
-
+    spdlog::debug("[*] Total: {} directory items enumerated", count);
     return all_files;
 }
 
@@ -196,23 +229,23 @@ fs::path get_root_dir(const cxxopts::ParseResult& result)
         root_path = result["d"].as<std::string>();
         if( !fs::exists(root_path) )
         {
-            std::cerr << "[!] Path '" << root_path << "' does not exist" << std::endl;
+            spdlog::critical("[!] Path '{}' does not exist", root_path.string());
             exit(1);
         }
         if(!fs::is_directory(root_path))
         {
-            std::cerr << "[!] Path '" << root_path << "' is not a directory" << std::endl;
+            spdlog::critical("[!] Path '{}' is not a directory", root_path.string());
             exit(1);
         }
         if( root_path.is_relative() )
         {
             root_path = fs::absolute(root_path);
         }
-        std::cout << "[+] Hashing " << root_path << std::endl;
+        spdlog::info("[+] Hashing {}", root_path.string());
     }
     else
     {
-        std::cerr << "[!] Path required (-d || --root-dir)" << std::endl;
+        spdlog::critical("[!] Path required (-d || --root-dir)");
         exit(1);
     }
     return root_path;
@@ -239,16 +272,16 @@ HASHALG get_hashalg(const cxxopts::ParseResult& result)
                        [](unsigned char c){ return std::tolower(c); });
         if(!algs.contains(algstr))
         {
-            std::cerr << "[!] Must select 'md5', 'sha1', or 'sha256'" << std::endl;
+            spdlog::error("[!] Must select 'md5', 'sha1', or 'sha256'");
             exit(1);
         }
-        std::cout << "[+] Using algorithm '" << algstr << "'" << std::endl;
+        spdlog::info("[+] Using algorithm '{}'", algstr);
     }
     else
     {
-            std::cerr << "[!] algorithm required (-a || --algorithm)" << std::endl;
-            std::cerr << "[!] Must select 'md5', 'sha1', or 'sha256'" << std::endl;
-            exit(1);
+        spdlog::error("[!] algorithm required (-a || --algorithm)");
+        spdlog::error("[!] Must select 'md5', 'sha1', or 'sha256'");
+        exit(1);
     }
     return algs[algstr];
 }
@@ -267,13 +300,13 @@ strvector get_checksum_files(const cxxopts::ParseResult& result)
         checksum_files = result["f"].as<strvector>();
         for(const std::string& s: checksum_files)
         {
-            std::cout << "[*] Checksum file pattern '" << s << "'" << std::endl;
+            spdlog::info("[*] Checksum file pattern '{}'", s);
         }
     }
     else if(result.count("x") || result.count("force"))
     {
         // force compute-only
-        std::cout << "[*] Calculating hashes without validating" << std::endl;
+        spdlog::info("[*] Calculating hashes without validating");
         checksum_files.emplace_back(COMPUTE_ONLY);
     }
     else
@@ -293,7 +326,7 @@ strvector get_checksum_files(const cxxopts::ParseResult& result)
             }
             else if ((response.rfind("N", 0) == 0) || (response.rfind("n", 0) == 0))
             {
-                std::cerr << "[!] Exiting..." << std::endl;
+                spdlog::error("[!] Exiting...");
                 exit(0);
             }
             std::cout << "    Invalid - Please enter 'yes' or 'no' to continue (Y/N) > ";
@@ -315,21 +348,29 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
     fs::path root_dir = get_root_dir(result);
     strvector checksum_files = get_checksum_files(result);
 
-    std::cout << "[+] Recursively walking " << root_dir << std::endl;
+    spdlog::info("[+] Recursively walking {}", root_dir.string());
     pathvector all_files = recursive_dirwalk(root_dir);
 
     if(checksum_files.size() == 1 && checksum_files[0] == COMPUTE_ONLY)
     {
-        std::cout << "[!] No checksum files given - no log files will be generated" << std::endl;
-        std::for_each(all_files.begin(), all_files.end(), [&](const auto& path)
+        spdlog::warn("[!] No checksum files given - no log files will be generated");
+        for(const auto& path : all_files)
         {
+            if(s_ctrl_c)
+            {
+                break;
+            }
             all_hashes.emplace_back(path, IGNORE_HASH_CHECK);
-        });
+        }
     }
     else
     {
         for( const auto& p : all_files )
         {
+            if(s_ctrl_c)
+            {
+                break;
+            }
             // Search the directory for all the checksum/hash files
             // and parse those files, storing the expected hashes
             if (std::find(checksum_files.begin(),
@@ -342,20 +383,25 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
         }
     }
 
+    if(s_ctrl_c)
+    {
+        all_hashes.clear();
+        return all_hashes;
+    }
+
     if(all_hashes.empty())
     {
-        // Nothing to do
-        std::cerr << "[-] No hashes found, check your 'hashfile-name' parameter" << std::endl;
+        spdlog::error("[-] No hashes found, check your 'hashfile-name' parameter");
         print_usage();
         exit(1);
     }
 
-    std::cout << "[*] Sorting files by file size, smallest first" << std::endl;
     // Then, just in case, remove duplicate entries: 1) Sort  2) Erase Duplicates
+    spdlog::info("[*] Sorting files by file size, smallest first");
     std::sort(all_hashes.begin(), all_hashes.end(), [](const pathstruct& a, const pathstruct& b) {
         return (a.filesize < b.filesize);
     });
-    std::cout << "[*] Erasing duplicate entries, if any" << std::endl;
+    spdlog::info("[*] Erasing duplicate entries, if any");
     all_hashes.erase(std::unique(all_hashes.begin(), all_hashes.end()), all_hashes.end());
     return all_hashes;
 }
@@ -368,7 +414,7 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult& result)
  */
 cxxopts::ParseResult parse_cmdline_args(int argc, const char* argv[])
 {
-std::cout << "[+] " << argv[0] << std::endl;
+    std::cout << "[+] " << argv[0] << std::endl;
 
     cxxopts::Options options(argv[0], " - Recursively calculate the crypto hashes for a directory");
     bool run_tests;
@@ -415,115 +461,116 @@ std::cout << "[+] " << argv[0] << std::endl;
 }
 
 /**
- * @brief main
+ * @brief Start async tasks and get a vector of std::future for polling/awaiting
+ * @param cmdline_args The command line arguments to the program
+ * @param use_osapi_hash if True, attempt to use the built in Crypto module; if False, use the compiled in functions
+ * @param print_debug Print all available debug statements
+ * @return Vector of pending tasks that can be polled/awaited for results
  */
-extern "C"
-int main(int argc, const char* argv[])
+std::vector< std::future<pathpair> > start_tasks(const cxxopts::ParseResult& cmdline_args, bool use_osapi_hash, bool print_debug)
 {
-    std::vector< std::future<pathpair> > tasks;
-    cxxopts::ParseResult cmdline_args = parse_cmdline_args(argc, argv);
-    bool use_osapi_hash = true;
-    bool verbose = false;
-
-    if(cmdline_args.count("v") || cmdline_args.count("verbose"))
-    {
-        verbose = true;
-    }
-    else
-    {
-        std::cout << "[!] Only displaying failed checksums, re-run with '-v' | '-verbose' to see all hashes" << std::endl;
-    }
-
-#ifdef _WIN32 // register signal handlers
-    if (!SetConsoleCtrlHandler(ctrl_c_handler, TRUE))
-    {
-        std::cerr << "[-] Could not set control handler" << std::endl;
-        exit(EXIT_FAILURE);
-    }
-#else
-    std::signal(SIGINT, ctrl_c_handler);
+#ifndef _WIN32
     // Linux set ulimit to allow for a really huge disk
     // Get the current file limits for later on below.
     struct rlimit limit;
     if (getrlimit(RLIMIT_NOFILE, &limit) != 0)
     {
-        std::cerr << "[-] getrlimit() failed with errno=" << errno << std::endl;
-        return 1;
+        spdlog::critical("[-] getrlimit() failed with errno={} ({})", errno, std::strerror(errno));
+        exit(1);
     }
-#endif // REGISTER SIGNAL HANDLERS
+    spdlog::debug("[+] Current limit on open files: {}", limit.rlim_cur);
+    spdlog::debug("[+] Maximum limit on open files: {}", limit.rlim_max);
+#endif // not _WIN32
 
-    if(cmdline_args.count("n") || cmdline_args.count("no-osapi-hash"))
-    {
-        std::cout << "[*] Forcing the use of built-in hashing algorithm" << std::endl;
-        use_osapi_hash = false;
-    }
+    auto hashalg = get_hashalg(cmdline_args);
+    auto all_hashes = load_hashes(cmdline_args);
+    size_t num_files = all_hashes.size();
+    spdlog::info("[+] Computing and checking {} file hashes", num_files);
 
-    { // A scope for all_hashes
-        auto hashalg = get_hashalg(cmdline_args);
-        auto all_hashes = load_hashes(cmdline_args);
-        size_t num_files = all_hashes.size();
-        std::cout << "[+] Computing and checking " << num_files << " file hashes" << std::endl;
 #ifndef _WIN32
-        if((size_t)(limit.rlim_cur) < num_files || (size_t)(limit.rlim_max) < num_files)
+    // increase, if possible, the number of concurrent open files
+    if((size_t)(limit.rlim_cur) < num_files || (size_t)(limit.rlim_max) < num_files)
+    {
+        // check for sudo
+        if(geteuid() == 0)
         {
-            // check for sudo
-            if(geteuid() == 0)
+            limit.rlim_cur = num_files * 2;
+            limit.rlim_max = num_files * 2;
+            if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
             {
-                limit.rlim_cur = num_files * 2;
-                limit.rlim_max = num_files * 2;
-                if (setrlimit(RLIMIT_NOFILE, &limit) != 0)
-                {
-                    std::cerr << "[-] setrlimit() failed with errno=" << errno << std::endl;
-                    return 1;
-                }
-            }
-            else
-            {
-                set_hash_concurrency_limit(num_files);
+                spdlog::critical("[-] setrlimit() failed with errno={}", errno);
+                exit(1);
             }
         }
-#else
-        // TODO: Windows RLIMIT-equivalent task here if necessary
+    }
+    set_hash_concurrency_limit(std::min(num_files, limit.rlim_cur));
 #endif
-        std::for_each(all_hashes.begin(), all_hashes.end(),
-        [&](const pathstruct& s)
-        {
-            tasks.emplace_back(std::async(std::launch::async, hash_file_thread_func,
-                                          s.path, hashalg, s.hash, use_osapi_hash));
-        });
-    }
 
-    // Wait for and process results - the benefit of the std::sort() above is that, by sorting
-    // on file size, we get results faster on the vast majority of the files. Less blocking
-    // on big files in lieu of smaller ones.
-    size_t numFiles = tasks.size();
-    if(numFiles == 0)
+    std::vector< std::future<pathpair> > tasks;
+    for(const auto& s : all_hashes)
     {
-        std::cout << "[+] Done: No files to process" << std::endl << std::endl;
-        close_log();
-        return 0;
+        if(s_ctrl_c)
+        {
+            tasks.clear();
+            break;
+        }
+        tasks.emplace_back(std::async(std::launch::async, hash_file_thread_func,
+                                        s.path, hashalg, s.hash, use_osapi_hash, print_debug));
     }
+    return tasks;
+}
 
+/**
+ * @brief Start async tasks and get a vector of std::future for polling/awaiting
+ * @param tasks std::future vector of pending tasks to poll
+ * @param numFiles number of tasks/files being hashed
+ * @param verbose Print all available debug statements
+ * @return Vector of pending tasks that can be polled/awaited for results
+ */
+void wait_on_tasks(std::vector< std::future<pathpair> >& tasks, size_t numFiles, bool verbose)
+{
     double progressAmt = (1.0 / (double)numFiles) * 100;
     double totalProgress = 0.0;
     size_t approxFivePct = numFiles / 20;
     size_t totalFilesHashed = 0;
+
+    spdlog::debug("[+] Polling tasks for completed hashes");
     for(auto& f : tasks)
     {
+        pathpair pair;
         totalFilesHashed++;
         totalProgress += progressAmt;
 
-        pathpair pair = f.get();
+        if(s_ctrl_c)
+        {
+            break;
+        }
+
+        if(!f.valid())
+        {
+            spdlog::warn("[*] Invalid task returned, check implementation");
+            continue;
+        }
+        try
+        {
+            pair = f.get();
+        }
+        catch( const std::exception& e )
+        {
+            spdlog::warn("[!] Exception caught while attempting to retrieve path pair from std::future => {}", e.what());
+            continue;
+        }
+
         if(pair.second == HASH_CANCELLED_STR || pair.second == HASH_FAILED_STR)
         {
-            std::cout << "(" << (int)totalProgress << "%)[!] " << pair.second << " => " << pair.first << std::endl;
+            if(verbose)
+                spdlog::info("({}%)[!] {} => {}", (int)totalProgress, pair.second, pair.first.string());
         }
         else
         {
             if(verbose)
             {
-                std::cout << "(" << (int)totalProgress << "%)[+] file:  " << pair.first << std::endl;
-                std::cout << "\tdigest:  " << pair.second << std::endl << std::endl;
+                spdlog::info("({}%)[+] file:  {}\n\t\t\tdigest:  {}", (int)totalProgress, pair.first.string(), pair.second);
             }
             else if(
                     (totalFilesHashed % approxFivePct) == 0 ||
@@ -532,12 +579,76 @@ int main(int argc, const char* argv[])
             {
                 // For every five percent of files hashed, print a status report, and also
                 // once the last file has been hashed
-                std::cout << "(" << (int)totalProgress << "%)[+] " << totalFilesHashed << " files hashed" << std::endl;
+                spdlog::info("({}%)[+] {} files hashed", (int)totalProgress, totalFilesHashed);
             }
         }
     }
+}
 
-    std::cout << "[+] Done" << std::endl << std::endl;
+/**
+ * @brief main
+ */
+extern "C"
+int main(int argc, const char* argv[])
+{
+    // Create logger for the threads
+    auto console = spdlog::stdout_color_mt(THREADLOGGER_STR);
+    // Default logger - async console
+    spdlog::set_level(spdlog::level::info);
+    spdlog::set_pattern(SPDLOG_PATTERN);
+
+    cxxopts::ParseResult cmdline_args = parse_cmdline_args(argc, argv);
+    bool use_osapi_hash = true;
+    bool verbose = false;
+    bool print_debug = false;
+
+    if(cmdline_args.count("v") || cmdline_args.count("verbose"))
+    {
+        verbose = true;
+        if(cmdline_args.count("v") >= 2)
+        {
+            spdlog::set_level(spdlog::level::debug); // Set global log level to debug
+            print_debug = true;
+        }
+    }
+    else
+    {
+        spdlog::warn("[!] Only displaying failed checksums, re-run with '-v' | '-verbose' to see all hashes");
+    }
+
+    if(cmdline_args.count("n") || cmdline_args.count("no-osapi-hash"))
+    {
+        spdlog::info("[*] Forcing the use of built-in hashing algorithm");
+        use_osapi_hash = false;
+    }
+
+    // register Ctrl-C signal handlers
+#ifdef _WIN32
+    if (!SetConsoleCtrlHandler(ctrl_c_handler, TRUE))
+    {
+        spdlog::critical("[-] Could not set control handler");
+        exit(EXIT_FAILURE);
+    }
+#else
+    std::signal(SIGINT, ctrl_c_handler);
+#endif // REGISTER SIGNAL HANDLERS
+
+    spdlog::info("[*] {} cores available for processing", std::thread::hardware_concurrency());
+
+    auto tasks = start_tasks(cmdline_args, use_osapi_hash, print_debug);
+    // Wait for and process results - the benefit of the std::sort() above is that, by sorting
+    // on file size, we get results faster on the vast majority of the files. Less blocking
+    // on big files in lieu of smaller ones.
+    size_t numFiles = tasks.size();
+    if(numFiles == 0)
+    {
+        spdlog::info("[+] Done: No files to process");
+        close_log();
+        return 0;
+    }
+
+    wait_on_tasks(tasks, numFiles, verbose);
+    spdlog::info("[+] Done");
     close_log();
     destroy_hash_concurrency_limit();
     return 0;

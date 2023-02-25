@@ -25,54 +25,191 @@
 */
 
 #pragma once
-
 #include "common.h"
+// Kernel socket crypto
+#ifndef _WIN32
+#include "kcapi.h"
+#endif
 
-typedef enum
+#include "md5.h"
+#include "sha1.h"
+#include "sha256.h"
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+/**
+* @class hash
+* @brief Pure Abstract Class - provides interface and generic functionality for hash algorithms
+* that extend/derive this class
+**/
+class hash {
+private:
+    std::shared_ptr<spdlog::logger> m_logger;
+#ifdef _WIN32
+    BCRYPT_ALG_HANDLE       m_hAlg;
+    BCRYPT_HASH_HANDLE      m_hHash;
+#else
+    struct kcapi_handle *m_handle = NULL;
+#endif
+
+protected:
+    bool m_isOsApi;
+    size_t m_lenDigest = 0; // set by derived classes
+    unsigned char m_digestBuf[32]; // Largest possible digest
+
+    /**
+     * @brief Linux only - check to see if the Kernel Crypto API is installed and available
+     * to user space
+     * @return false if OS API crypto is not available
+     * @note Static booleans prevent the internal logic from running more than once
+     * to save time/space
+    */
+    virtual bool osapi_hashing_available();
+
+    /**
+    * @brief Start up the Operating System embedded hash API and acquire handles
+    * @param hashname String indicating the name of the hash algorithm
+    * @return bool - Function success
+    */
+#ifdef _WIN32
+    virtual bool osapi_starts(LPCWSTR hashname);
+#else
+    virtual bool osapi_starts(const char* hashname);
+#endif
+
+    /**
+    * @brief Update the hash state with data from the object being hashed
+    * @param buf - Data fragment to be added to the hash object
+    * @param ilen - Length of the data fragment
+    * @return bool - Function success
+    */
+    virtual bool osapi_update(const unsigned char* buf, size_t ilen);
+
+    /**
+    * @brief Complete computation of the hash and save in object's digest buffer
+    * @return bool - Function success
+    * @note - After calling, all the hash handles are invalidated and this object cannot be reused.
+    */
+    virtual bool osapi_finish();
+
+public:
+    hash() = delete;
+    hash(std::shared_ptr<spdlog::logger> logger);
+    hash(const hash&) = delete;
+    hash& operator=(const hash&) = delete;
+    virtual ~hash();
+
+    /**
+    * @brief Turn on access to OS hashing algorithms if available
+    */
+    virtual void enable_osapi_hashing();
+
+    /**
+    * @brief Explicitly turn off OS hashing algorithms
+    */
+    virtual void disable_osapi_hashing();
+
+    /**
+    * @brief Update internal hash state with data to be hashed
+    * @note Pure virtual function that subclasses must implement
+    */
+    virtual void update(const unsigned char* data, size_t ilen) = 0;
+
+    /**
+    * @brief Complete hashing and return message digest
+    * @return std::string - Hexadecimal message digest in string form
+    * @note Pure virtual function that subclasses must implement
+    */
+    virtual std::string get_hash() = 0;
+};
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+/**
+* @class c_md5
+* @brief MD5 subclass of hash class
+**/
+class c_md5 : public hash
 {
-    MD5, SHA1, SHA256
-} HASHALG;
+private:
+    md5_context m_ctx;
+#ifdef _WIN32
+    LPCWSTR m_hashname = BCRYPT_MD5_ALGORITHM;
+#else
+    constexpr static char m_hashname[] = "md5";
+#endif
+    const static size_t m_md5Len = 16;
+public:
+    c_md5() = delete;
+    c_md5(std::shared_ptr<spdlog::logger> logger) : hash(logger)
+    {
+        m_lenDigest = m_md5Len;
+        osapi_starts(m_hashname);
+        md5_starts(&m_ctx);
+    }
+    c_md5(const c_md5&) = delete;
+    c_md5& operator=(const c_md5&) = delete;
+    virtual ~c_md5();
+    virtual void update(const unsigned char* data, size_t ilen);
+    virtual std::string get_hash();
 
-/**
- * @brief Set limit on the number of hash threads that can run simultaneously
- * @param limit number of concurrent threads
-*/
-void set_hash_concurrency_limit(unsigned int limit);
+};
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
 /**
- * @brief Remove limit on the number of hash threads that can run simultaneously
- * @param limit number of concurrent threads
- * @note If set_limit above is called, you should call this just before program termination
-*/
-void destroy_hash_concurrency_limit();
+* @class c_sha1
+* @brief SHA1 subclass of hash class
+**/
+class c_sha1 : public hash
+{
+private:
+    sha1_context m_ctx;
+#ifdef _WIN32
+    LPCWSTR m_hashname = BCRYPT_SHA1_ALGORITHM;
+#else
+    constexpr static char m_hashname[] = "sha1";
+#endif
+    const static size_t m_sha1Len = 20;
+public:
+    c_sha1() = delete;
+    c_sha1(std::shared_ptr<spdlog::logger> logger) : hash(logger)
+    {
+        m_lenDigest = m_sha1Len;
+        osapi_starts(m_hashname);
+        sha1_starts(&m_ctx);
+    }
+    c_sha1(const c_sha1&) = delete;
+    c_sha1& operator=(const c_sha1&) = delete;
+    virtual ~c_sha1();
+    virtual void update(const unsigned char* data, size_t ilen);
+    virtual std::string get_hash();
 
-/**
- * @brief Perform self tests on local hash functions
-*/
-void run_hash_tests();
+};
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
 /**
- * @brief Thread function for asynchronous hashing task (subject to concurrency limit)
- * @param path Full/absolute path to the file being hashed
- * @param algorithm The hash algorithm being used
- * @param expected The expected hash of the file, if it's being checked. To skip this check,
- * @param use_osapi_hashing If TRUE, try to force the use of the OS crypto API
-*/
-pathpair hash_file_thread_func(const fs::path& path, HASHALG algorithm, const std::string& expected, bool use_osapi_hashing);
-
-/**
- * @brief When called, terminates all running tasks
-*/
-void stop_tasks();
-
-/**
- * @brief Opens the log file for task logging
- * @param path The path to the log file
- * @param log_successes If true, then write successful hashes to the file in addition to failures
-*/
-void set_log_path(const fs::path& path, bool log_successes);
-
-/**
- * @brief Flush and close the log file
-*/
-void close_log();
+* @class c_sha256
+* @brief SHA256 subclass of hash class
+**/
+class c_sha256 : public hash
+{
+private:
+    sha256_context m_ctx;
+#ifdef _WIN32
+    LPCWSTR m_hashname = BCRYPT_SHA256_ALGORITHM;
+#else
+    constexpr static char m_hashname[] = "sha256";
+#endif
+    const static size_t m_sha256Len = 32;
+public:
+    c_sha256() = delete;
+    c_sha256(std::shared_ptr<spdlog::logger> logger) : hash(logger)
+    {
+        m_lenDigest = m_sha256Len;
+        osapi_starts(m_hashname);
+        sha256_starts(&m_ctx);
+    }
+    c_sha256(const c_sha256&) = delete;
+    c_sha256& operator=(const c_sha256&) = delete;
+    virtual ~c_sha256();
+    virtual void update(const unsigned char* data, size_t ilen);
+    virtual std::string get_hash();
+};

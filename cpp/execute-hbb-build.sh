@@ -36,12 +36,12 @@ fi
 
 if [ ! "$(docker image list | grep $HBB_NAME)" ]; then
     echo "Holy Build Box 64 not found, pulling from the Internet"
-    sudo docker pull $HBB_NAME:latest
+    docker pull $HBB_NAME:latest
 else
     while true; do
     read -p "Holy Build Box: Do you want to check for updates? " yn
     case $yn in
-        [Yy]* ) sudo docker pull $HBB_NAME:latest; break;;
+        [Yy]* ) docker pull $HBB_NAME:latest; break;;
         [Nn]* ) break;;
         * ) echo "Please answer yes or no.";;
     esac
