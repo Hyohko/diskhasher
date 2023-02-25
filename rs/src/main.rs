@@ -24,64 +24,20 @@
     <https://www.gnu.org/licenses/>.
 */
 
-use {clap::Parser, diskhasher::*, regex::Regex, std::fs, std::path::Path, std::process};
+use {
+    clap::Parser,
+    diskhasher::{Arguments, Hasher, HasherError},
+};
 
-/*
-//#[clap(short,long)]
-//logfile: Option<String>,
-//#[clap(short,long)]
-//success_log: Option<bool>,
-*/
-
-fn main() {
-    let mut pool = create_threadpool().unwrap_or_else(|err| {
-        println!("[-] ThreadPool error: {}", err);
-        process::exit(1);
-    });
-
+fn main() -> Result<(), HasherError> {
     let args = Arguments::parse();
-
-    println!("[+] Using the {:?} algorithm", args.algorithm);
-
-    // Recursively enumerate directory
-    let root_path = fs::canonicalize(Path::new(&args.directory)).unwrap_or_else(|_| {
-        println!("[-] Could not canonicalize the path '{}'", args.directory);
-        process::exit(1);
-    });
-    if !root_path.is_dir() {
-        println!(
-            "[-] Path '{}' is not a valid directory",
-            root_path.display()
-        );
-        process::exit(1);
-    }
-
-    let hashfile_pattern = args
+    let pattern = args
         .pattern
         .clone()
         .unwrap_or("NO_VALID_PATTERN".to_string());
-    println!(
-        "[+] Validating hashfile regular expression {:?}",
-        hashfile_pattern
-    );
-    let hash_regex = Regex::new(&hashfile_pattern).unwrap_or_else(|_| {
-        println!("[-] Invalid regular expression '{}'", hashfile_pattern);
-        process::exit(1);
-    });
-
-    println!(
-        "[+] Recursively listing all regular files in '{}'",
-        root_path.display()
-    );
-    let all_files = recursive_dir(&root_path).unwrap_or_else(|_| {
-        println!("[!] Unable to walk directory {}", root_path.display());
-        process::exit(1);
-    });
-
-    let num_files: usize = start_hash_threads(&mut pool, all_files, &hash_regex, args).unwrap();
-
-    // Wait for all threads to finish
-    pool.join();
-    hashcount_monitor(num_files);
+    let root = args.directory.clone();
+    let mut myhasher = Hasher::new(args.algorithm, root, pattern)?;
+    myhasher.run(&args)?;
     println!("[+] Done");
+    Ok(())
 }
