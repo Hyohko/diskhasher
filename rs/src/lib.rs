@@ -299,11 +299,7 @@ impl Hasher {
         );
 
         let num_files = self.checkedfiles.len();
-        loop {
-            let mut ck = match self.checkedfiles.pop() {
-                Some(v) => v,
-                None => break, // no more files to check
-            };
+        while let Some(mut ck) = self.checkedfiles.pop() {
             if !&self.hashmap.contains_key(&ck.path) {
                 if !args.force {
                     println!("[!] {:?} => No hash found", &ck.path);
