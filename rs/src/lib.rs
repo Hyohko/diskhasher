@@ -141,8 +141,6 @@ impl Hasher {
         alg: HashAlg,
         root_dir: String,
         hashfile_pattern: String,
-        // Debug level
-        // Logfile
     ) -> Result<Self, HasherError> {
         let hash_regex = match Regex::new(&hashfile_pattern) {
             Ok(v) => v,
@@ -532,6 +530,7 @@ impl HasherUtil {
                 why: format!("Line does not have enough elements: {}", newline),
             });
         }
+
         let hashval: &str = splitline[0];
         //if !regex_pattern.is_match(hashval) {
         if !HasherUtil::hexstring_is_valid(hashval) {
