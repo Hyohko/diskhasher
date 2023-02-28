@@ -24,27 +24,26 @@
 # Public License along with DISKHASHER. If not, see
 # <https://www.gnu.org/licenses/>.
 
-BUILD_DIR=/io/build
+source "$HOME/.cargo/env"
+BUILD_DIR=/io
 
-if [ -d $BUILD_DIR ]; then
-	rm $BUILD_DIR -rf
-fi
-mkdir $BUILD_DIR
 cd $BUILD_DIR
-
 BUILD_MODE=""
 case $1 in
-    release ) BUILD_MODE=Release ;;
-    debug ) BUILD_MODE=Debug ;;
-    * ) echo "[*] Default build mode is debug"
-	BUILD_MODE=Debug
-	;;
+    release )
+		ARTIFACT=release
+		cargo build --release
+		;;
+    debug )
+		ARTIFACT=debug
+		cargo build
+		;;
+    * ) 
+		echo "[*] Default build mode is debug"
+		ARTIFACT=debug
+		cargo build 
+		;;
 esac
 
-/hbb/bin/cmake .. -DCMAKE_BUILD_TYPE=$BUILD_MODE
-make -j
-if [ $BUILD_MODE == Release ]; then
-	strip $BUILD_DIR/diskhasher
-fi
-mv ./diskhasher $BUILD_DIR/..
-rm $BUILD_DIR -rf
+ARTIFACT_FILE=$BUILD_DIR/target/$ARTIFACT/diskhasher
+[ -f $ARTIFACT_FILE ] && mv $ARTIFACT_FILE $BUILD_DIR/diskhasher
