@@ -37,7 +37,7 @@ use {
     std::io::{BufRead, BufReader, Read},
     std::path::{Path, PathBuf},
     std::sync::atomic::{AtomicUsize, Ordering},
-    std::sync::Arc,
+    std::sync::{Arc, Mutex},
     std::thread,
     threadpool::ThreadPool,
     walkdir::WalkDir,
@@ -76,8 +76,8 @@ impl Display for HashAlg {
 
 #[derive(Parser)]
 #[clap(
-    author,
-    version,
+    author = "Hyohko",
+    version = "0.0.1",
     about = "Hash a directory's files and optionally check against existing hashfile"
 )]
 pub struct Arguments {
@@ -107,6 +107,7 @@ pub enum FileType {
 #[derive(Debug)]
 pub struct Hasher {
     hashes_completed: Arc<AtomicUsize>,
+    monitor_mutex: Arc<Mutex<bool>>,
     pool: ThreadPool,
     alg: HashAlg,
     root: PathBuf,
@@ -163,6 +164,7 @@ impl Hasher {
 
         Ok(Hasher {
             hashes_completed: Arc::new(AtomicUsize::new(1)),
+            monitor_mutex: Arc::new(Mutex::new(false)),
             pool: ThreadPool::new(num_threads),
             alg,
             root,
@@ -195,11 +197,11 @@ impl Hasher {
 
     //  Private Functions
     fn hashcount_monitor(&self, total_files: usize) {
-        HasherUtil::hashcount_monitor_thread(&self.hashes_completed, total_files);
-    }
-
-    fn increment_hashcount(&self) {
-        HasherUtil::increment_hashcount_thread(&self.hashes_completed);
+        HasherUtil::increment_hashcount_thread(
+            &self.hashes_completed,
+            &self.monitor_mutex,
+            total_files,
+        );
     }
 
     fn join(&self) -> Result<(), HasherError> {
@@ -283,7 +285,7 @@ impl Hasher {
             });
             files_added += 1;
             if files_added % 500 == 0 {
-                println!("[*] {} files to be hashed", files_added);
+                println!("[*] Added {} files to be hashed", files_added);
             }
         }
 
@@ -292,7 +294,7 @@ impl Hasher {
         (self.hashfiles, self.checkedfiles) = file_vec
             .into_iter()
             .partition(|f| HasherUtil::path_matches_regex(&self.hash_regex, &f.path));
-
+        println!("[*] {} files in the queue", self.checkedfiles.len());
         // Sort vector by file size, smallest first
         println!("[*] Sorting files by size");
         self.checkedfiles.sort_by(|a, b| a.size.cmp(&b.size));
@@ -315,7 +317,7 @@ impl Hasher {
             if !&self.hashmap.contains_key(&ck.path) {
                 if !args.force {
                     println!("[!] {:?} => No hash found", &ck.path);
-                    self.increment_hashcount();
+                    self.hashes_completed.fetch_add(1, Ordering::SeqCst);
                     continue;
                 }
             }
@@ -330,9 +332,11 @@ impl Hasher {
             let force = args.force;
             let verbose = args.verbose;
             let atomic_clone = self.hashes_completed.clone();
+            let mutex_clone = self.monitor_mutex.clone();
             self.pool.execute(move || {
                 HasherUtil::perform_hash(
                     atomic_clone,
+                    mutex_clone,
                     expected_fdata,
                     alg,
                     force,
@@ -412,24 +416,6 @@ impl HasherUtil {
         Ok(hex::encode(hasher.finalize()))
     }
 
-    fn hashcount_monitor_thread(atomic_hashcount: &Arc<AtomicUsize>, total_files: usize) {
-        if total_files == 0 {
-            println!("[!] No files to hash");
-            return;
-        }
-        let curr_hashes: usize = atomic_hashcount.load(Ordering::SeqCst);
-        let pct_complete: f64 = ((curr_hashes) as f64 / (total_files) as f64) * 100.0;
-        if curr_hashes % 500 == 0 {
-            println!("[*] ({:.2}%) {} hashes complete", pct_complete, curr_hashes);
-        }
-        if curr_hashes == total_files {
-            println!(
-                "[*] ({:.2}%) {} hashes complete\n[+] No more files to hash",
-                pct_complete, curr_hashes
-            );
-        }
-    }
-
     fn hexstring_is_valid(hexstring: &str) -> bool {
         match hexstring.len() {
             32 | 48 | 56 | 64 | 96 | 128 => {
@@ -444,8 +430,31 @@ impl HasherUtil {
         }
     }
 
-    fn increment_hashcount_thread(atomic_size: &Arc<AtomicUsize>) {
-        atomic_size.fetch_add(1, Ordering::SeqCst);
+    fn increment_hashcount_thread(
+        atomic_hashcount: &Arc<AtomicUsize>,
+        monitor_mutex: &Arc<Mutex<bool>>,
+        total_files: usize,
+    ) {
+        let _guard = monitor_mutex
+            .lock()
+            .expect("If a mutex lock fails, there is a design flaw. Rewrite code.");
+        if total_files == 0 {
+            println!("[!] No files to hash");
+            return;
+        }
+        atomic_hashcount.fetch_add(1, Ordering::SeqCst);
+        let curr_hashes: usize = atomic_hashcount.load(Ordering::SeqCst);
+        let pct_complete: f64 = ((curr_hashes) as f64 / (total_files) as f64) * 100.0;
+        let approx_five_pct: usize = total_files / 20;
+        if curr_hashes % 500 == 0 || curr_hashes % approx_five_pct == 0 {
+            println!("[*] ({:.2}%) {} hashes complete", pct_complete, curr_hashes);
+        }
+        if curr_hashes == total_files {
+            println!(
+                "[*] ({:.2}%) {} hashes complete\n[+] No more files to hash",
+                pct_complete, curr_hashes
+            );
+        }
     }
 
     fn path_matches_regex(hash_regex: &Regex, file_path: &PathBuf) -> bool {
@@ -468,13 +477,13 @@ impl HasherUtil {
 
     fn perform_hash(
         atomic_hashcount: Arc<AtomicUsize>,
+        monitor_mutex: Arc<Mutex<bool>>,
         fdata: FileData,
         alg: HashAlg,
         force: bool,
         verbose: bool,
         num_files: usize,
     ) -> Result<(), HasherError> {
-        HasherUtil::increment_hashcount_thread(&atomic_hashcount);
         let actual_hash = HasherUtil::hash_file(&fdata.path, alg)?;
         if force {
             println!(
@@ -498,7 +507,7 @@ impl HasherUtil {
                 );
             }
         }
-        HasherUtil::hashcount_monitor_thread(&atomic_hashcount, num_files);
+        HasherUtil::increment_hashcount_thread(&atomic_hashcount, &monitor_mutex, num_files);
         Ok(())
     }
 
