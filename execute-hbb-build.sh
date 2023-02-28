@@ -65,7 +65,7 @@ else
     while true; do
     read -p "Holy Build Box: Do you want to check for updates? " yn
     case $yn in
-        [Yy]* ) 
+        [Yy]* )
             docker pull $HBB_NAME:latest
             docker build -f ../Dockerfile -t $MY_HBB_NAME ..
             break;;
