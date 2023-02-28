@@ -84,6 +84,9 @@ if [ ! "$(docker ps -a -q -f name=$MY_HBB_NAME)" ]; then
         -v `pwd`/$DISTRO:$MOUNT $MY_HBB_NAME:latest \
         $ACTIVATE \
         bash -x -c "$RUNSCRIPT $BUILD_MODE"
+    mv `pwd`/$DISTRO/diskhasher .
++   echo "[+] diskhasher binary at $(pwd)/dishkasher"
++   echo "[+] done"
 fi
 
 
