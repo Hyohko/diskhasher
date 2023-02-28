@@ -36,7 +36,7 @@ if [ ! $(which docker) ]; then
 fi
 
 # podman check
-if [[ $(docker --version) == *"podman"* ]]; then
+if [ $(docker --version) == *"podman"* ]; then
     echo "[!] Building under PodMan, add the ':Z' flag to the mount command"
     MOUNT=$MOUNT:Z
 fi
