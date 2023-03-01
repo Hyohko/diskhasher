@@ -24,6 +24,10 @@
     <https://www.gnu.org/licenses/>.
 */
 
+extern crate pretty_env_logger;
+#[macro_use]
+extern crate log;
+
 use {
     clap::ValueEnum,
     custom_error::custom_error,
@@ -155,7 +159,7 @@ impl Hasher {
             Ok(v) => v,
             Err(err) => match force {
                 true => {
-                    println!("[+] No valid hashfile, but --force flag set");
+                    warn!("[+] No valid hashfile, but --force flag set");
                 }
                 false => {
                     return Err(err);
@@ -209,7 +213,7 @@ impl Hasher {
                     match HasherUtil::split_hashfile_line(&newline, &hashpath) {
                         Ok(v) => v,
                         Err(_e) => {
-                            println!(
+                            error!(
                                 "[!] Failed to parse {}, ignore and continue parsing",
                                 newline
                             );
@@ -219,7 +223,7 @@ impl Hasher {
                 self.hashmap.insert(canonical_path, hashval);
                 num_lines += 1;
                 if num_lines % 500 == 0 {
-                    println!("[*] {} hashes read from {}", num_lines, f.path.display());
+                    info!("[*] {} hashes read from {}", num_lines, f.path.display());
                 }
             }
         }
@@ -244,7 +248,7 @@ impl Hasher {
             let size: u64 = match path.metadata() {
                 Ok(f) => f.len(),
                 Err(_e) => {
-                    println!("[!] Failed to get metadata for {}", path.display());
+                    error!("[!] Failed to get metadata for {}", path.display());
                     continue;
                 } // No error for now, keep processing
             };
@@ -255,24 +259,24 @@ impl Hasher {
             });
             files_added += 1;
             if files_added % 500 == 0 {
-                println!("[*] Added {} files to be hashed", files_added);
+                info!("[*] Added {} files to be hashed", files_added);
             }
         }
 
         // Split the file vec into hash files and non-hashfiles
-        println!("[+] Identifying hashfiles");
+        info!("[+] Identifying hashfiles");
         (self.hashfiles, self.checkedfiles) = file_vec
             .into_iter()
             .partition(|f| HasherUtil::path_matches_regex(&self.hash_regex, &f.path));
-        println!("[*] {} files in the queue", self.checkedfiles.len());
+        info!("[*] {} files in the queue", self.checkedfiles.len());
 
         // Sort vector by file size, smallest first
         if largest_first {
-            println!("[*] Sorting files by size, largest first");
+            info!("[*] Sorting files by size, largest first");
             self.checkedfiles
                 .sort_unstable_by(|a, b| a.size.cmp(&b.size));
         } else {
-            println!("[*] Sorting files by size, smallest first");
+            info!("[*] Sorting files by size, smallest first");
             self.checkedfiles
                 .sort_unstable_by(|a, b| b.size.cmp(&a.size));
         }
@@ -281,7 +285,7 @@ impl Hasher {
 
     fn start_hash_threads(&mut self, force: bool, verbose: bool) -> Result<usize, HasherError> {
         const EMPTY_STRING: String = String::new();
-        println!(
+        info!(
             "[+] Checking hashes - spinning up {} worker threads",
             self.pool.max_count()
         );
@@ -290,7 +294,7 @@ impl Hasher {
         while let Some(mut ck) = self.checkedfiles.pop() {
             if !&self.hashmap.contains_key(&ck.path) {
                 if !force {
-                    println!("[!] {:?} => No hash found", &ck.path);
+                    warn!("[!] {:?} => No hash found", &ck.path);
                     self.hashcount_monitor(num_files);
                     continue;
                 }
@@ -407,7 +411,7 @@ impl HasherUtil {
             .lock()
             .expect("If a mutex lock fails, there is a design flaw. Rewrite code.");
         if total_files == 0 {
-            println!("[!] No files to hash");
+            warn!("[!] No files to hash");
             return;
         }
         _atomic_hashcount.fetch_add(1, Ordering::SeqCst);
@@ -415,10 +419,10 @@ impl HasherUtil {
         let pct_complete: f64 = ((curr_hashes) as f64 / (total_files) as f64) * 100.0;
         let approx_five_pct: usize = total_files / 20;
         if curr_hashes % 500 == 0 || curr_hashes % approx_five_pct == 0 {
-            println!("[*] ({:.2}%) {} hashes complete", pct_complete, curr_hashes);
+            info!("[*] ({:.2}%) {} hashes complete", pct_complete, curr_hashes);
         }
         if curr_hashes == total_files {
-            println!(
+            info!(
                 "[*] ({:.2}%) {} hashes complete\n[+] No more files to hash",
                 pct_complete, curr_hashes
             );
@@ -429,14 +433,14 @@ impl HasherUtil {
         let str_path = match file_path.file_name() {
             Some(v) => v,
             None => {
-                println!("[-] Failed to retrieve file name from path object");
+                error!("[-] Failed to retrieve file name from path object");
                 return false;
             }
         };
         let is_match = hash_regex.is_match(match str_path.to_str() {
             Some(v) => v,
             None => {
-                println!("[-] Path string failed to parse");
+                error!("[-] Path string failed to parse");
                 return false;
             }
         });
@@ -453,25 +457,28 @@ impl HasherUtil {
         HasherUtil::increment_hashcount(num_files);
         let actual_hash = HasherUtil::hash_file(&fdata.path, alg)?;
         if force {
-            println!(
-                "[*] Checksum value : {:?}\n\tHash         : {:?}",
+            let result = format!(
+                "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}",
                 &fdata.path, actual_hash
             );
+            info!("{}", result);
         } else {
             // Compare
             let success: bool = &fdata.expected_hash == &actual_hash;
             if success {
                 if verbose {
-                    println!(
-                        "[+] Checksum passed: {:?}\n\tActual hash  : {:?}",
+                    let result = format!(
+                        "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}",
                         &fdata.path, actual_hash
                     );
+                    info!("{}", result);
                 }
             } else {
-                println!(
-                    "[-] Checksum failed: {:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",
+                let result = format!(
+                    "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",
                     &fdata.path, &fdata.expected_hash, actual_hash
                 );
+                error!("{}", result);
             }
         }
         Ok(())

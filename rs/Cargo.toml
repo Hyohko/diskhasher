@@ -38,7 +38,8 @@ panic = "abort"
 opt-level = 3 # "s" binary size, omit for speed
 
 [dependencies]
-#clap = { version = "3.2.16", features = ["derive"] }
+log = "^0.4"
+pretty_env_logger = "^0.4"
 clap = { version = "4.1.6", features = ["derive"] }
 digest = "^0.10"
 filesize = "^0.2.0"

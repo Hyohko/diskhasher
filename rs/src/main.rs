@@ -24,15 +24,20 @@
     <https://www.gnu.org/licenses/>.
 */
 
+extern crate pretty_env_logger;
+#[macro_use]
+extern crate log;
+
 use {
     clap::Parser,
     diskhasher::{HashAlg, Hasher, HasherError},
+    log::LevelFilter,
 };
 
 #[derive(Parser)]
 #[clap(
     author = "Hyohko",
-    version = "0.0.1",
+    version = "0.1",
     about = "Hash a directory's files and optionally check against existing hashfile"
 )]
 pub struct Arguments {
@@ -58,14 +63,30 @@ pub struct Arguments {
 }
 
 fn main() -> Result<(), HasherError> {
+    let mut _logbuilder = pretty_env_logger::formatted_timed_builder()
+        .filter_level(LevelFilter::Info)
+        .init();
+
     let args = Arguments::parse();
     let pattern = args
         .pattern
         .clone()
         .unwrap_or("NO_VALID_PATTERN".to_string());
     let root = args.directory.clone();
-    let mut myhasher = Hasher::new(args.algorithm, root, pattern)?;
-    myhasher.run(args.force, args.verbose, args.largest)?;
-    println!("[+] Done");
+    let mut myhasher = match Hasher::new(args.algorithm, root, pattern) {
+        Ok(v) => v,
+        Err(_e) => {
+            error!("{}", _e);
+            return Err(_e);
+        }
+    };
+    let _runval = match myhasher.run(args.force, args.verbose, args.largest) {
+        Ok(v) => v,
+        Err(_e) => {
+            error!("{}", _e);
+            return Err(_e);
+        }
+    };
+    info!("[+] Done");
     Ok(())
 }
