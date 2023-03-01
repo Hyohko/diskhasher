@@ -31,7 +31,7 @@ version = "0.0.1"
 edition = "2021"
 
 [profile.release]
-lto = true # "fat" was former option
+lto = "fat"
 codegen-units = 1
 strip = true
 panic = "abort"

@@ -50,9 +50,39 @@ use {
 // TODO - remove public fields
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct FileData {
-    pub size: u64,
-    pub path: PathBuf,
-    pub expected_hash: String,
+    size: u64,
+    path: PathBuf,
+    expected_hash: String,
+}
+
+impl FileData {
+    fn new(size: u64, path: PathBuf) -> Self {
+        FileData {
+            size,
+            path,
+            expected_hash: String::new(),
+        }
+    }
+    fn size(&self) -> u64 {
+        self.size
+    }
+    fn path(&self) -> &PathBuf {
+        &self.path
+    }
+    fn path_string(&self) -> String {
+        self.path.display().to_string()
+    }
+    fn hash(&self) -> &String {
+        &self.expected_hash
+    }
+    fn set_hash(&mut self, hash: &String) {
+        self.expected_hash = hash.clone();
+    }
+}
+
+enum FileType {
+    IsDir,
+    IsFile,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -78,22 +108,6 @@ impl Display for HashAlg {
     }
 }
 
-pub enum FileType {
-    IsDir,
-    IsFile,
-}
-
-#[derive(Debug)]
-pub struct Hasher {
-    pool: ThreadPool,
-    alg: HashAlg,
-    root: PathBuf,
-    hash_regex: Regex,
-    hashfiles: Vec<FileData>,
-    checkedfiles: Vec<FileData>,
-    hashmap: HashMap<PathBuf, String>,
-}
-
 custom_error! {pub HasherError
     RegexError{why: String} = "Regular expression failed => {why}",
     FileError{path: String, why: String} = "File/Directory error => '{path}': {why}",
@@ -112,6 +126,17 @@ impl From<std::io::Error> for HasherError {
 }
 
 use crate::HasherError::*;
+#[derive(Debug)]
+pub struct Hasher {
+    pool: ThreadPool,
+    alg: HashAlg,
+    root: PathBuf,
+    hash_regex: Regex,
+    hashfiles: Vec<FileData>,
+    checkedfiles: Vec<FileData>,
+    hashmap: HashMap<PathBuf, String>,
+}
+
 impl Hasher {
     // Public Interface Functions
     pub fn new(
@@ -187,14 +212,14 @@ impl Hasher {
         self.hashmap.reserve(self.checkedfiles.len());
 
         for f in &self.hashfiles {
-            let mut hashpath = f.path.clone();
+            let mut hashpath = f.path().clone();
             hashpath.pop();
 
             // Open file
-            let file = File::open(&f.path).or_else(|err| {
+            let file = File::open(f.path()).or_else(|err| {
                 return Err(FileError {
                     why: format!("{} : Hashfile cannot be opened", err),
-                    path: f.path.display().to_string(),
+                    path: f.path_string(),
                 });
             })?;
 
@@ -205,7 +230,7 @@ impl Hasher {
                 let newline = line.or_else(|err| {
                     return Err(FileError {
                         why: format!("{} : Line from file cannot be read", err),
-                        path: f.path.display().to_string(),
+                        path: f.path_string(),
                     });
                 })?;
 
@@ -223,7 +248,7 @@ impl Hasher {
                 self.hashmap.insert(canonical_path, hashval);
                 num_lines += 1;
                 if num_lines % 500 == 0 {
-                    info!("[*] {} hashes read from {}", num_lines, f.path.display());
+                    info!("[*] {} hashes read from {}", num_lines, f.path_string());
                 }
             }
         }
@@ -252,11 +277,7 @@ impl Hasher {
                     continue;
                 } // No error for now, keep processing
             };
-            file_vec.push(FileData {
-                size,
-                path: path.to_path_buf(),
-                expected_hash: "".to_string(),
-            });
+            file_vec.push(FileData::new(size, path.to_path_buf()));
             files_added += 1;
             if files_added % 500 == 0 {
                 info!("[*] Added {} files to be hashed", files_added);
@@ -267,7 +288,7 @@ impl Hasher {
         info!("[+] Identifying hashfiles");
         (self.hashfiles, self.checkedfiles) = file_vec
             .into_iter()
-            .partition(|f| HasherUtil::path_matches_regex(&self.hash_regex, &f.path));
+            .partition(|f| HasherUtil::path_matches_regex(&self.hash_regex, f.path()));
         if self.hashfiles.len() == 0 {
             let reason = "No hashfiles matched the hashfile pattern".to_string();
             if !force {
@@ -282,11 +303,11 @@ impl Hasher {
         if largest_first {
             info!("[*] Sorting files by size, largest first");
             self.checkedfiles
-                .sort_unstable_by(|a, b| a.size.cmp(&b.size));
+                .sort_unstable_by(|a, b| a.size().cmp(&b.size()));
         } else {
             info!("[*] Sorting files by size, smallest first");
             self.checkedfiles
-                .sort_unstable_by(|a, b| b.size.cmp(&a.size));
+                .sort_unstable_by(|a, b| b.size().cmp(&a.size()));
         }
         Ok(())
     }
@@ -300,24 +321,27 @@ impl Hasher {
 
         let num_files = self.checkedfiles.len();
         while let Some(mut ck) = self.checkedfiles.pop() {
-            if !&self.hashmap.contains_key(&ck.path) {
+            if !&self.hashmap.contains_key(ck.path()) {
                 if !force {
-                    warn!("[!] {:?} => No hash found", &ck.path);
+                    warn!("[!] {:?} => No hash found", ck.path());
                     self.hashcount_monitor(num_files);
                     continue;
                 }
             }
-            ck.expected_hash = self
-                .hashmap
-                .get(&ck.path)
-                .unwrap_or(&EMPTY_STRING)
-                .to_string();
-
+            {
+                // Scope
+                let expected_hash = self
+                    .hashmap
+                    .get(ck.path())
+                    .unwrap_or(&EMPTY_STRING)
+                    .to_string();
+                ck.set_hash(&expected_hash);
+            }
             let alg = self.alg;
             self.pool.execute(move || {
                 HasherUtil::perform_hash(ck, alg, force, verbose, num_files).ok();
             });
-        } // end loop
+        } // end while
         Ok(num_files)
     }
 }
@@ -463,28 +487,31 @@ impl HasherUtil {
         num_files: usize,
     ) -> Result<(), HasherError> {
         HasherUtil::increment_hashcount(num_files);
-        let actual_hash = HasherUtil::hash_file(&fdata.path, alg)?;
+        let actual_hash = HasherUtil::hash_file(fdata.path(), alg)?;
         if force {
             let result = format!(
                 "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}",
-                &fdata.path, actual_hash
+                fdata.path(),
+                actual_hash
             );
             info!("{}", result);
         } else {
             // Compare
-            let success: bool = &fdata.expected_hash == &actual_hash;
+            let success: bool = fdata.hash() == &actual_hash;
             if success {
                 if verbose {
                     let result = format!(
                         "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}",
-                        &fdata.path, actual_hash
+                        fdata.path(),
+                        actual_hash
                     );
                     info!("{}", result);
                 }
             } else {
-                let result = format!(
+                let result =
+                    format!(
                     "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",
-                    &fdata.path, &fdata.expected_hash, actual_hash
+                    fdata.path(), fdata.hash(), actual_hash
                 );
                 error!("{}", result);
             }
