@@ -60,14 +60,14 @@ esac
 if [ ! "$(docker image list | grep $MY_HBB_NAME)" ]; then
     echo "Rebuilding Holy Build Box for Rust, pulling from the Internet"
     docker pull $HBB_NAME:latest
-    docker build -f Dockerfile -t $MY_HBB_NAME .
+    docker build -f `pwd`/Dockerfile -t $MY_HBB_NAME .
 else
     while true; do
     read -p "Holy Build Box: Do you want to check for updates? " yn
     case $yn in
         [Yy]* )
             docker pull $HBB_NAME:latest
-            docker build -f ../Dockerfile -t $MY_HBB_NAME ..
+            docker build -f `pwd`/Dockerfile -t $MY_HBB_NAME ..
             break;;
         [Nn]* )
             break;;

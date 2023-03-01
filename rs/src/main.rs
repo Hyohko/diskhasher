@@ -26,8 +26,33 @@
 
 use {
     clap::Parser,
-    diskhasher::{Arguments, Hasher, HasherError},
+    diskhasher::{HashAlg, Hasher, HasherError},
 };
+
+#[derive(Parser)]
+#[clap(
+    author = "Hyohko",
+    version = "0.0.1",
+    about = "Hash a directory's files and optionally check against existing hashfile"
+)]
+pub struct Arguments {
+    /// Path to the directory we want to validate
+    #[clap(short, long)]
+    pub directory: String,
+    /// Algorithm to use (SHA1, SHA256)
+    #[clap(short, long)]
+    #[arg(value_enum)]
+    pub algorithm: HashAlg,
+    /// Regex pattern used to identify hashfiles
+    #[clap(short, long)]
+    pub pattern: Option<String>,
+    /// Force computation of hashes even if hash pattern fails or is omitted
+    #[clap(short, long, action)]
+    pub force: bool,
+    /// Print all results to stdout
+    #[clap(short, long, action)]
+    pub verbose: bool,
+}
 
 fn main() -> Result<(), HasherError> {
     let args = Arguments::parse();
@@ -37,7 +62,7 @@ fn main() -> Result<(), HasherError> {
         .unwrap_or("NO_VALID_PATTERN".to_string());
     let root = args.directory.clone();
     let mut myhasher = Hasher::new(args.algorithm, root, pattern)?;
-    myhasher.run(&args)?;
+    myhasher.run(args.force, args.verbose)?;
     println!("[+] Done");
     Ok(())
 }

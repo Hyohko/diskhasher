@@ -25,7 +25,7 @@
 */
 
 use {
-    clap::{Parser, ValueEnum},
+    clap::ValueEnum,
     custom_error::custom_error,
     digest::DynDigest,
     hex,
@@ -72,31 +72,6 @@ impl Display for HashAlg {
             Self::SHA512 => write!(f, "SHA512"),
         }
     }
-}
-
-#[derive(Parser)]
-#[clap(
-    author = "Hyohko",
-    version = "0.0.1",
-    about = "Hash a directory's files and optionally check against existing hashfile"
-)]
-pub struct Arguments {
-    /// Path to the directory we want to validate
-    #[clap(short, long)]
-    pub directory: String,
-    /// Algorithm to use (SHA1, SHA256)
-    #[clap(short, long)]
-    #[arg(value_enum)]
-    pub algorithm: HashAlg,
-    /// Regex pattern used to identify hashfiles
-    #[clap(short, long)]
-    pub pattern: Option<String>,
-    /// Force computation of hashes even if hash pattern fails or is omitted
-    #[clap(short, long, action)]
-    pub force: bool,
-    /// Print all results to stdout
-    #[clap(short, long, action)]
-    pub verbose: bool,
 }
 
 pub enum FileType {
@@ -169,11 +144,11 @@ impl Hasher {
         })
     }
 
-    pub fn run(&mut self, args: &Arguments) -> Result<(), HasherError> {
+    pub fn run(&mut self, force: bool, verbose: bool) -> Result<(), HasherError> {
         self.recursive_dir()?;
         let _e = match self.load_hashes() {
             Ok(v) => v,
-            Err(err) => match args.force {
+            Err(err) => match force {
                 true => {
                     println!("[+] No valid hashfile, but --force flag set");
                 }
@@ -183,7 +158,7 @@ impl Hasher {
             },
         };
         let num_files = self.checkedfiles.len();
-        self.start_hash_threads(args)?;
+        self.start_hash_threads(force, verbose)?;
         self.join()?;
         self.hashcount_monitor(num_files);
         Ok(())
@@ -285,14 +260,15 @@ impl Hasher {
             .into_iter()
             .partition(|f| HasherUtil::path_matches_regex(&self.hash_regex, &f.path));
         println!("[*] {} files in the queue", self.checkedfiles.len());
+
         // Sort vector by file size, smallest first
         println!("[*] Sorting files by size");
         self.checkedfiles
-            .sort_unstable_by(|a, b| a.size.cmp(&b.size));
+            .sort_unstable_by(|a, b| b.size.cmp(&a.size));
         Ok(())
     }
 
-    fn start_hash_threads(&mut self, args: &Arguments) -> Result<usize, HasherError> {
+    fn start_hash_threads(&mut self, force: bool, verbose: bool) -> Result<usize, HasherError> {
         const EMPTY_STRING: String = String::new();
         println!(
             "[+] Checking hashes - spinning up {} worker threads",
@@ -302,7 +278,7 @@ impl Hasher {
         let num_files = self.checkedfiles.len();
         while let Some(mut ck) = self.checkedfiles.pop() {
             if !&self.hashmap.contains_key(&ck.path) {
-                if !args.force {
+                if !force {
                     println!("[!] {:?} => No hash found", &ck.path);
                     self.hashcount_monitor(num_files);
                     continue;
@@ -315,8 +291,6 @@ impl Hasher {
                 .to_string();
 
             let alg = self.alg;
-            let force = args.force;
-            let verbose = args.verbose;
             self.pool.execute(move || {
                 HasherUtil::perform_hash(ck, alg, force, verbose, num_files).ok();
             });
