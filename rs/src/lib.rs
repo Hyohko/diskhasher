@@ -154,7 +154,7 @@ impl Hasher {
         verbose: bool,
         largest_first: bool,
     ) -> Result<(), HasherError> {
-        self.recursive_dir(largest_first)?;
+        self.recursive_dir(force, largest_first)?;
         let _e = match self.load_hashes() {
             Ok(v) => v,
             Err(err) => match force {
@@ -193,7 +193,7 @@ impl Hasher {
             // Open file
             let file = File::open(&f.path).or_else(|err| {
                 return Err(FileError {
-                    why: format!("{} : Hashfile cannot be opened, trying any others", err),
+                    why: format!("{} : Hashfile cannot be opened", err),
                     path: f.path.display().to_string(),
                 });
             })?;
@@ -236,7 +236,7 @@ impl Hasher {
         Ok(())
     }
 
-    fn recursive_dir(&mut self, largest_first: bool) -> Result<(), HasherError> {
+    fn recursive_dir(&mut self, force: bool, largest_first: bool) -> Result<(), HasherError> {
         let mut file_vec = Vec::<FileData>::new();
         let mut files_added: i32 = 0;
         for entry in WalkDir::new(&self.root)
@@ -268,6 +268,14 @@ impl Hasher {
         (self.hashfiles, self.checkedfiles) = file_vec
             .into_iter()
             .partition(|f| HasherUtil::path_matches_regex(&self.hash_regex, &f.path));
+        if self.hashfiles.len() == 0 {
+            let reason = "No hashfiles matched the hashfile pattern".to_string();
+            if !force {
+                return Err(RegexError { why: reason });
+            } else {
+                warn!("{}", reason);
+            }
+        }
         info!("[*] {} files in the queue", self.checkedfiles.len());
 
         // Sort vector by file size, smallest first

@@ -40,11 +40,11 @@ use {
     version = "0.1",
     about = "Hash a directory's files and optionally check against existing hashfile"
 )]
-pub struct Arguments {
+struct Arguments {
     /// Path to the directory we want to validate
     #[clap(short, long)]
     pub directory: String,
-    /// Algorithm to use (MD5, SHA1, SHA256, SHA384, SHA512)
+    /// Algorithm to use
     #[clap(short, long)]
     #[arg(value_enum)]
     pub algorithm: HashAlg,
@@ -76,14 +76,14 @@ fn main() -> Result<(), HasherError> {
     let mut myhasher = match Hasher::new(args.algorithm, root, pattern) {
         Ok(v) => v,
         Err(_e) => {
-            error!("{}", _e);
+            error!("[!] Hasher constructor error => {}", _e);
             return Err(_e);
         }
     };
     let _runval = match myhasher.run(args.force, args.verbose, args.largest) {
         Ok(v) => v,
         Err(_e) => {
-            error!("{}", _e);
+            error!("[!] Hasher runtime failure => {}", _e);
             return Err(_e);
         }
     };
