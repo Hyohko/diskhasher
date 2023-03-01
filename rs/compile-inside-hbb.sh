@@ -1,53 +1,49 @@
-#
+#!/bin/sh
+
 # DISKHASHER v0.1 - 2022 by Hyohko
 
-# ##################################
-# GPLv3 NOTICE AND DISCLAIMER
-# ##################################
-
+##################################
+#   GPLv3 NOTICE AND DISCLAIMER
+##################################
+#
 # This file is part of DISKHASHER.
-
+#
 # DISKHASHER is free software: you can redistribute it
 # and/or modify it under the terms of the GNU General
 # Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at
 # your option) any later version.
-
+#
 # DISKHASHER is distributed in the hope that it will
 # be useful, but WITHOUT ANY WARRANTY; without even
 # the implied warranty of MERCHANTABILITY or FITNESS
 # FOR A PARTICULAR PURPOSE. See the GNU General Public
 # License for more details.
-
+#
 # You should have received a copy of the GNU General
 # Public License along with DISKHASHER. If not, see
 # <https://www.gnu.org/licenses/>.
-#
 
-[package]
-name = "diskhasher"
-authors = ["Hyohko"]
-version = "0.0.1"
-edition = "2021"
+source "$HOME/.cargo/env"
+BUILD_DIR=/io
 
-[profile.release]
-lto = true # "fat" was former option
-codegen-units = 1
-strip = true
-panic = "abort"
-opt-level = 3 # "s" binary size, omit for speed
+cd $BUILD_DIR
+BUILD_MODE=""
+case $1 in
+    release )
+		ARTIFACT=release
+		cargo build --release
+		;;
+    debug )
+		ARTIFACT=debug
+		cargo build
+		;;
+    * ) 
+		echo "[*] Default build mode is debug"
+		ARTIFACT=debug
+		cargo build 
+		;;
+esac
 
-[dependencies]
-log = "^0.4"
-pretty_env_logger = "^0.4"
-clap = { version = "4.1.6", features = ["derive"] }
-digest = "^0.10"
-filesize = "^0.2.0"
-hex = "^0.4.3"
-md-5 = "0.10.5"
-regex = "^1"
-sha1 = "^0.10"
-sha2 = "^0.10"
-threadpool = "^1.8.1"
-walkdir = "^2"
-custom_error = "^1.9.2"
+ARTIFACT_FILE=$BUILD_DIR/target/$ARTIFACT/diskhasher
+[ -f $ARTIFACT_FILE ] && mv $ARTIFACT_FILE $BUILD_DIR/diskhasher

@@ -32,7 +32,19 @@ fi
 mkdir $BUILD_DIR
 cd $BUILD_DIR
 
-/hbb/bin/cmake ..
+BUILD_MODE=""
+case $1 in
+    release ) BUILD_MODE=Release ;;
+    debug ) BUILD_MODE=Debug ;;
+    * ) echo "[*] Default build mode is debug"
+	BUILD_MODE=Debug
+	;;
+esac
+
+/hbb/bin/cmake .. -DCMAKE_BUILD_TYPE=$BUILD_MODE
 make -j
+if [ $BUILD_MODE == Release ]; then
+	strip $BUILD_DIR/diskhasher
+fi
 mv ./diskhasher $BUILD_DIR/..
 rm $BUILD_DIR -rf

@@ -24,20 +24,69 @@
     <https://www.gnu.org/licenses/>.
 */
 
+extern crate pretty_env_logger;
+#[macro_use]
+extern crate log;
+
 use {
     clap::Parser,
-    diskhasher::{Arguments, Hasher, HasherError},
+    diskhasher::{HashAlg, Hasher, HasherError},
+    log::LevelFilter,
 };
 
+#[derive(Parser)]
+#[clap(
+    author = "Hyohko",
+    version = "0.1",
+    about = "Hash a directory's files and optionally check against existing hashfile"
+)]
+struct Arguments {
+    /// Path to the directory we want to validate
+    #[clap(short, long)]
+    pub directory: String,
+    /// Algorithm to use
+    #[clap(short, long)]
+    #[arg(value_enum)]
+    pub algorithm: HashAlg,
+    /// Regex pattern used to identify hashfiles
+    #[clap(short, long)]
+    pub pattern: Option<String>,
+    /// Force computation of hashes even if hash pattern fails or is omitted
+    #[clap(short, long, action)]
+    pub force: bool,
+    /// Print all results to stdout
+    #[clap(short, long, action)]
+    pub verbose: bool,
+    /// Hash largest files first instead of smallest files
+    #[clap(short, long, action)]
+    pub largest: bool,
+}
+
 fn main() -> Result<(), HasherError> {
+    let mut _logbuilder = pretty_env_logger::formatted_timed_builder()
+        .filter_level(LevelFilter::Info)
+        .init();
+
     let args = Arguments::parse();
     let pattern = args
         .pattern
         .clone()
         .unwrap_or("NO_VALID_PATTERN".to_string());
     let root = args.directory.clone();
-    let mut myhasher = Hasher::new(args.algorithm, root, pattern)?;
-    myhasher.run(&args)?;
-    println!("[+] Done");
+    let mut myhasher = match Hasher::new(args.algorithm, root, pattern) {
+        Ok(v) => v,
+        Err(_e) => {
+            error!("[!] Hasher constructor error => {}", _e);
+            return Err(_e);
+        }
+    };
+    let _runval = match myhasher.run(args.force, args.verbose, args.largest) {
+        Ok(v) => v,
+        Err(_e) => {
+            error!("[!] Hasher runtime failure => {}", _e);
+            return Err(_e);
+        }
+    };
+    info!("[+] Done");
     Ok(())
 }

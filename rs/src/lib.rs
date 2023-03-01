@@ -24,8 +24,12 @@
     <https://www.gnu.org/licenses/>.
 */
 
+extern crate pretty_env_logger;
+#[macro_use]
+extern crate log;
+
 use {
-    clap::{Parser, ValueEnum},
+    clap::ValueEnum,
     custom_error::custom_error,
     digest::DynDigest,
     hex,
@@ -37,7 +41,7 @@ use {
     std::io::{BufRead, BufReader, Read},
     std::path::{Path, PathBuf},
     std::sync::atomic::{AtomicUsize, Ordering},
-    std::sync::{Arc, Mutex},
+    std::sync::Mutex,
     std::thread,
     threadpool::ThreadPool,
     walkdir::WalkDir,
@@ -74,31 +78,6 @@ impl Display for HashAlg {
     }
 }
 
-#[derive(Parser)]
-#[clap(
-    author = "Hyohko",
-    version = "0.0.1",
-    about = "Hash a directory's files and optionally check against existing hashfile"
-)]
-pub struct Arguments {
-    /// Path to the directory we want to validate
-    #[clap(short, long)]
-    pub directory: String,
-    /// Algorithm to use (SHA1, SHA256)
-    #[clap(short, long)]
-    #[arg(value_enum)]
-    pub algorithm: HashAlg,
-    /// Regex pattern used to identify hashfiles
-    #[clap(short, long)]
-    pub pattern: Option<String>,
-    /// Force computation of hashes even if hash pattern fails or is omitted
-    #[clap(short, long, action)]
-    pub force: bool,
-    /// Print all results to stdout
-    #[clap(short, long, action)]
-    pub verbose: bool,
-}
-
 pub enum FileType {
     IsDir,
     IsFile,
@@ -106,8 +85,6 @@ pub enum FileType {
 
 #[derive(Debug)]
 pub struct Hasher {
-    hashes_completed: Arc<AtomicUsize>,
-    monitor_mutex: Arc<Mutex<bool>>,
     pool: ThreadPool,
     alg: HashAlg,
     root: PathBuf,
@@ -161,8 +138,6 @@ impl Hasher {
         };
 
         Ok(Hasher {
-            hashes_completed: Arc::new(AtomicUsize::new(1)),
-            monitor_mutex: Arc::new(Mutex::new(false)),
             pool: ThreadPool::new(num_threads),
             alg,
             root,
@@ -173,13 +148,18 @@ impl Hasher {
         })
     }
 
-    pub fn run(&mut self, args: &Arguments) -> Result<(), HasherError> {
-        self.recursive_dir()?;
+    pub fn run(
+        &mut self,
+        force: bool,
+        verbose: bool,
+        largest_first: bool,
+    ) -> Result<(), HasherError> {
+        self.recursive_dir(force, largest_first)?;
         let _e = match self.load_hashes() {
             Ok(v) => v,
-            Err(err) => match args.force {
+            Err(err) => match force {
                 true => {
-                    println!("[+] No valid hashfile, but --force flag set");
+                    warn!("[+] No valid hashfile, but --force flag set");
                 }
                 false => {
                     return Err(err);
@@ -187,7 +167,7 @@ impl Hasher {
             },
         };
         let num_files = self.checkedfiles.len();
-        self.start_hash_threads(args)?;
+        self.start_hash_threads(force, verbose)?;
         self.join()?;
         self.hashcount_monitor(num_files);
         Ok(())
@@ -195,11 +175,7 @@ impl Hasher {
 
     //  Private Functions
     fn hashcount_monitor(&self, total_files: usize) {
-        HasherUtil::increment_hashcount_thread(
-            &self.hashes_completed,
-            &self.monitor_mutex,
-            total_files,
-        );
+        HasherUtil::increment_hashcount(total_files);
     }
 
     fn join(&self) -> Result<(), HasherError> {
@@ -217,7 +193,7 @@ impl Hasher {
             // Open file
             let file = File::open(&f.path).or_else(|err| {
                 return Err(FileError {
-                    why: format!("{} : Hashfile cannot be opened, trying any others", err),
+                    why: format!("{} : Hashfile cannot be opened", err),
                     path: f.path.display().to_string(),
                 });
             })?;
@@ -237,7 +213,7 @@ impl Hasher {
                     match HasherUtil::split_hashfile_line(&newline, &hashpath) {
                         Ok(v) => v,
                         Err(_e) => {
-                            println!(
+                            error!(
                                 "[!] Failed to parse {}, ignore and continue parsing",
                                 newline
                             );
@@ -247,7 +223,7 @@ impl Hasher {
                 self.hashmap.insert(canonical_path, hashval);
                 num_lines += 1;
                 if num_lines % 500 == 0 {
-                    println!("[*] {} hashes read from {}", num_lines, f.path.display());
+                    info!("[*] {} hashes read from {}", num_lines, f.path.display());
                 }
             }
         }
@@ -260,7 +236,7 @@ impl Hasher {
         Ok(())
     }
 
-    fn recursive_dir(&mut self) -> Result<(), HasherError> {
+    fn recursive_dir(&mut self, force: bool, largest_first: bool) -> Result<(), HasherError> {
         let mut file_vec = Vec::<FileData>::new();
         let mut files_added: i32 = 0;
         for entry in WalkDir::new(&self.root)
@@ -272,7 +248,7 @@ impl Hasher {
             let size: u64 = match path.metadata() {
                 Ok(f) => f.len(),
                 Err(_e) => {
-                    println!("[!] Failed to get metadata for {}", path.display());
+                    error!("[!] Failed to get metadata for {}", path.display());
                     continue;
                 } // No error for now, keep processing
             };
@@ -283,65 +259,63 @@ impl Hasher {
             });
             files_added += 1;
             if files_added % 500 == 0 {
-                println!("[*] Added {} files to be hashed", files_added);
+                info!("[*] Added {} files to be hashed", files_added);
             }
         }
 
         // Split the file vec into hash files and non-hashfiles
-        println!("[+] Identifying hashfiles");
+        info!("[+] Identifying hashfiles");
         (self.hashfiles, self.checkedfiles) = file_vec
             .into_iter()
             .partition(|f| HasherUtil::path_matches_regex(&self.hash_regex, &f.path));
-        println!("[*] {} files in the queue", self.checkedfiles.len());
+        if self.hashfiles.len() == 0 {
+            let reason = "No hashfiles matched the hashfile pattern".to_string();
+            if !force {
+                return Err(RegexError { why: reason });
+            } else {
+                warn!("{}", reason);
+            }
+        }
+        info!("[*] {} files in the queue", self.checkedfiles.len());
+
         // Sort vector by file size, smallest first
-        println!("[*] Sorting files by size");
-        self.checkedfiles.sort_by(|a, b| a.size.cmp(&b.size));
+        if largest_first {
+            info!("[*] Sorting files by size, largest first");
+            self.checkedfiles
+                .sort_unstable_by(|a, b| a.size.cmp(&b.size));
+        } else {
+            info!("[*] Sorting files by size, smallest first");
+            self.checkedfiles
+                .sort_unstable_by(|a, b| b.size.cmp(&a.size));
+        }
         Ok(())
     }
 
-    fn start_hash_threads(&mut self, args: &Arguments) -> Result<usize, HasherError> {
+    fn start_hash_threads(&mut self, force: bool, verbose: bool) -> Result<usize, HasherError> {
         const EMPTY_STRING: String = String::new();
-        println!(
+        info!(
             "[+] Checking hashes - spinning up {} worker threads",
             self.pool.max_count()
         );
 
         let num_files = self.checkedfiles.len();
-        loop {
-            let ck = match self.checkedfiles.pop() {
-                Some(v) => v,
-                None => break, // no more files to check
-            };
+        while let Some(mut ck) = self.checkedfiles.pop() {
             if !&self.hashmap.contains_key(&ck.path) {
-                if !args.force {
-                    println!("[!] {:?} => No hash found", &ck.path);
-                    self.hashes_completed.fetch_add(1, Ordering::SeqCst);
+                if !force {
+                    warn!("[!] {:?} => No hash found", &ck.path);
+                    self.hashcount_monitor(num_files);
                     continue;
                 }
             }
-            let mut expected_fdata: FileData = ck.clone();
-            expected_fdata.expected_hash = self
+            ck.expected_hash = self
                 .hashmap
                 .get(&ck.path)
                 .unwrap_or(&EMPTY_STRING)
                 .to_string();
 
             let alg = self.alg;
-            let force = args.force;
-            let verbose = args.verbose;
-            let atomic_clone = self.hashes_completed.clone();
-            let mutex_clone = self.monitor_mutex.clone();
             self.pool.execute(move || {
-                HasherUtil::perform_hash(
-                    atomic_clone,
-                    mutex_clone,
-                    expected_fdata,
-                    alg,
-                    force,
-                    verbose,
-                    num_files,
-                )
-                .ok();
+                HasherUtil::perform_hash(ck, alg, force, verbose, num_files).ok();
             });
         } // end loop
         Ok(num_files)
@@ -428,28 +402,36 @@ impl HasherUtil {
         }
     }
 
-    fn increment_hashcount_thread(
-        atomic_hashcount: &Arc<AtomicUsize>,
-        monitor_mutex: &Arc<Mutex<bool>>,
+    // Why the separation? We may want to have a per-Hasher object mutex
+    // and hash count if we spin up multiple. Future-proofing.
+    fn increment_hashcount(total_files: usize) {
+        static S_MONITOR_MUTEX: Mutex<bool> = Mutex::new(false);
+        static S_ATOMIC_HASHCOUNT: AtomicUsize = AtomicUsize::new(0);
+        HasherUtil::increment_hashcount_func(&S_ATOMIC_HASHCOUNT, &S_MONITOR_MUTEX, total_files);
+    }
+
+    fn increment_hashcount_func(
+        _atomic_hashcount: &AtomicUsize,
+        _monitor_mutex: &Mutex<bool>,
         total_files: usize,
     ) {
-        let _guard = monitor_mutex
+        let _guard = _monitor_mutex
             .lock()
             .expect("If a mutex lock fails, there is a design flaw. Rewrite code.");
         if total_files == 0 {
-            println!("[!] No files to hash");
+            warn!("[!] No files to hash");
             return;
         }
-        atomic_hashcount.fetch_add(1, Ordering::SeqCst);
-        let curr_hashes: usize = atomic_hashcount.load(Ordering::SeqCst);
+        _atomic_hashcount.fetch_add(1, Ordering::SeqCst);
+        let curr_hashes: usize = _atomic_hashcount.load(Ordering::SeqCst);
         let pct_complete: f64 = ((curr_hashes) as f64 / (total_files) as f64) * 100.0;
         let approx_five_pct: usize = total_files / 20;
         if curr_hashes % 500 == 0 || curr_hashes % approx_five_pct == 0 {
-            println!("[*] ({:.2}%) {} hashes complete", pct_complete, curr_hashes);
+            info!("[*] ({:.2}%) {} hashes complete", pct_complete, curr_hashes);
         }
         if curr_hashes == total_files {
-            println!(
-                "[*] ({:.2}%) {} hashes complete\n[+] No more files to hash",
+            info!(
+                "[*] ({:.2}%) {} hashes complete! No more files to hash",
                 pct_complete, curr_hashes
             );
         }
@@ -459,14 +441,14 @@ impl HasherUtil {
         let str_path = match file_path.file_name() {
             Some(v) => v,
             None => {
-                println!("[-] Failed to retrieve file name from path object");
+                error!("[-] Failed to retrieve file name from path object");
                 return false;
             }
         };
         let is_match = hash_regex.is_match(match str_path.to_str() {
             Some(v) => v,
             None => {
-                println!("[-] Path string failed to parse");
+                error!("[-] Path string failed to parse");
                 return false;
             }
         });
@@ -474,38 +456,39 @@ impl HasherUtil {
     }
 
     fn perform_hash(
-        atomic_hashcount: Arc<AtomicUsize>,
-        monitor_mutex: Arc<Mutex<bool>>,
         fdata: FileData,
         alg: HashAlg,
         force: bool,
         verbose: bool,
         num_files: usize,
     ) -> Result<(), HasherError> {
+        HasherUtil::increment_hashcount(num_files);
         let actual_hash = HasherUtil::hash_file(&fdata.path, alg)?;
         if force {
-            println!(
-                "[*] Checksum value : {:?}\n\tHash         : {:?}",
+            let result = format!(
+                "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}",
                 &fdata.path, actual_hash
             );
+            info!("{}", result);
         } else {
             // Compare
             let success: bool = &fdata.expected_hash == &actual_hash;
             if success {
                 if verbose {
-                    println!(
-                        "[+] Checksum passed: {:?}\n\tActual hash  : {:?}",
+                    let result = format!(
+                        "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}",
                         &fdata.path, actual_hash
                     );
+                    info!("{}", result);
                 }
             } else {
-                println!(
-                    "[-] Checksum failed: {:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",
+                let result = format!(
+                    "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",
                     &fdata.path, &fdata.expected_hash, actual_hash
                 );
+                error!("{}", result);
             }
         }
-        HasherUtil::increment_hashcount_thread(&atomic_hashcount, &monitor_mutex, num_files);
         Ok(())
     }
 
