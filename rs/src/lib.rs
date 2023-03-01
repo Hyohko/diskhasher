@@ -423,7 +423,7 @@ impl HasherUtil {
         }
         if curr_hashes == total_files {
             info!(
-                "[*] ({:.2}%) {} hashes complete\n[+] No more files to hash",
+                "[*] ({:.2}%) {} hashes complete! No more files to hash",
                 pct_complete, curr_hashes
             );
         }
