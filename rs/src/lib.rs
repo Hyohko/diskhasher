@@ -287,7 +287,8 @@ impl Hasher {
         println!("[*] {} files in the queue", self.checkedfiles.len());
         // Sort vector by file size, smallest first
         println!("[*] Sorting files by size");
-        self.checkedfiles.sort_by(|a, b| a.size.cmp(&b.size));
+        self.checkedfiles
+            .sort_unstable_by(|a, b| a.size.cmp(&b.size));
         Ok(())
     }
 
