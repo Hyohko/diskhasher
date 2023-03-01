@@ -144,8 +144,13 @@ impl Hasher {
         })
     }
 
-    pub fn run(&mut self, force: bool, verbose: bool) -> Result<(), HasherError> {
-        self.recursive_dir()?;
+    pub fn run(
+        &mut self,
+        force: bool,
+        verbose: bool,
+        largest_first: bool,
+    ) -> Result<(), HasherError> {
+        self.recursive_dir(largest_first)?;
         let _e = match self.load_hashes() {
             Ok(v) => v,
             Err(err) => match force {
@@ -227,7 +232,7 @@ impl Hasher {
         Ok(())
     }
 
-    fn recursive_dir(&mut self) -> Result<(), HasherError> {
+    fn recursive_dir(&mut self, largest_first: bool) -> Result<(), HasherError> {
         let mut file_vec = Vec::<FileData>::new();
         let mut files_added: i32 = 0;
         for entry in WalkDir::new(&self.root)
@@ -262,9 +267,15 @@ impl Hasher {
         println!("[*] {} files in the queue", self.checkedfiles.len());
 
         // Sort vector by file size, smallest first
-        println!("[*] Sorting files by size");
-        self.checkedfiles
-            .sort_unstable_by(|a, b| b.size.cmp(&a.size));
+        if largest_first {
+            println!("[*] Sorting files by size, largest first");
+            self.checkedfiles
+                .sort_unstable_by(|a, b| a.size.cmp(&b.size));
+        } else {
+            println!("[*] Sorting files by size, smallest first");
+            self.checkedfiles
+                .sort_unstable_by(|a, b| b.size.cmp(&a.size));
+        }
         Ok(())
     }
 
@@ -383,7 +394,7 @@ impl HasherUtil {
     // and hash count if we spin up multiple. Future-proofing.
     fn increment_hashcount(total_files: usize) {
         static S_MONITOR_MUTEX: Mutex<bool> = Mutex::new(false);
-        static S_ATOMIC_HASHCOUNT: AtomicUsize = AtomicUsize::new(1);
+        static S_ATOMIC_HASHCOUNT: AtomicUsize = AtomicUsize::new(0);
         HasherUtil::increment_hashcount_func(&S_ATOMIC_HASHCOUNT, &S_MONITOR_MUTEX, total_files);
     }
 
@@ -433,14 +444,13 @@ impl HasherUtil {
     }
 
     fn perform_hash(
-        //atomic_hashcount: Arc<AtomicUsize>,
-        //monitor_mutex: Arc<Mutex<bool>>,
         fdata: FileData,
         alg: HashAlg,
         force: bool,
         verbose: bool,
         num_files: usize,
     ) -> Result<(), HasherError> {
+        HasherUtil::increment_hashcount(num_files);
         let actual_hash = HasherUtil::hash_file(&fdata.path, alg)?;
         if force {
             println!(
@@ -464,8 +474,6 @@ impl HasherUtil {
                 );
             }
         }
-        //HasherUtil::increment_hashcount_thread(&atomic_hashcount, &monitor_mutex, num_files);
-        HasherUtil::increment_hashcount(num_files);
         Ok(())
     }
 
