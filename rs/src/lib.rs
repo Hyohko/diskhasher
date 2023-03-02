@@ -38,11 +38,11 @@ use {
     std::fmt::{self, Display, Formatter},
     std::fs,
     std::fs::File,
-    std::io::{BufRead, BufReader, Read},
+    std::io::{BufRead, BufReader, Read, Write},
     std::mem,
     std::path::{Path, PathBuf},
     std::sync::atomic::{AtomicUsize, Ordering},
-    std::sync::Mutex,
+    std::sync::{Arc, Mutex},
     std::thread,
     threadpool::ThreadPool,
     walkdir::WalkDir,
@@ -136,6 +136,7 @@ pub struct Hasher {
     hashfiles: Vec<FileData>,
     checkedfiles: Vec<FileData>,
     hashmap: HashMap<PathBuf, String>,
+    loghandle: Option<Arc<Mutex<File>>>,
 }
 
 impl Hasher {
@@ -144,6 +145,7 @@ impl Hasher {
         alg: HashAlg,
         root_dir: String,
         hashfile_pattern: String,
+        logfile: Option<String>,
     ) -> Result<Self, HasherError> {
         let hash_regex = match Regex::new(&hashfile_pattern) {
             Ok(v) => v,
@@ -163,6 +165,15 @@ impl Hasher {
             }
         };
 
+        let loghandle = match logfile {
+            Some(v) => {
+                info!("[+] Logging failed hashes to {v}");
+                let handle = File::create(&v)?;
+                Some(Arc::new(Mutex::new(handle)))
+            }
+            None => None,
+        };
+
         Ok(Hasher {
             pool: ThreadPool::new(num_threads),
             alg,
@@ -171,6 +182,7 @@ impl Hasher {
             hashfiles: vec![],
             checkedfiles: vec![],
             hashmap: [].into(),
+            loghandle,
         })
     }
 
@@ -327,8 +339,9 @@ impl Hasher {
                 }
             };
             let alg = self.alg;
+            let loghandle = self.loghandle.clone();
             self.pool.execute(move || {
-                perform_hash(ck, alg, force, verbose, num_files).ok();
+                perform_hash_threadfunc(ck, alg, force, verbose, num_files, loghandle).ok();
             });
         } // end while
         Ok(num_files)
@@ -535,12 +548,13 @@ fn path_matches_regex(hash_regex: &Regex, file_path: &PathBuf) -> bool {
     is_match
 }
 
-fn perform_hash(
+fn perform_hash_threadfunc(
     fdata: FileData,
     alg: HashAlg,
     force: bool,
     verbose: bool,
     num_files: usize,
+    loghandle: Option<Arc<Mutex<File>>>,
 ) -> Result<(), HasherError> {
     let actual_hash = hash_file(fdata.path(), alg)?;
     if force {
@@ -550,6 +564,7 @@ fn perform_hash(
             actual_hash
         );
         info!("{result}");
+        write_to_log(&result, &loghandle);
     } else {
         // Compare
         let success: bool = fdata.hash() == &actual_hash;
@@ -561,6 +576,7 @@ fn perform_hash(
                     actual_hash
                 );
                 info!("{result}");
+                write_to_log(&result, &loghandle);
             }
         } else {
             let result = format!(
@@ -570,6 +586,7 @@ fn perform_hash(
                 actual_hash
             );
             error!("{result}");
+            write_to_log(&result, &loghandle);
         }
     }
     increment_hashcount(num_files);
@@ -608,6 +625,16 @@ fn split_hashfile_line(
     Ok((hashval.to_string(), canonical_path))
 }
 
+fn write_to_log(msg: &String, loghandle: &Option<Arc<Mutex<File>>>) {
+    match loghandle {
+        Some(handle) => {
+            let mut guarded_filehandle = handle.lock().unwrap();
+            (*guarded_filehandle).write(msg.as_bytes()).ok();
+            (*guarded_filehandle).write(b"\n").ok();
+        }
+        None => return,
+    }
+}
 ///////////////////////////////////////////////////////////////////////////////
 /// TESTS
 ///////////////////////////////////////////////////////////////////////////////

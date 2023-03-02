@@ -60,6 +60,9 @@ struct Arguments {
     /// Hash largest files first instead of smallest files
     #[clap(short, long, action)]
     pub largest: bool,
+    /// [Optional] name of a file to which failed hashes will be logged
+    #[clap(short, long)]
+    pub logfile: Option<String>,
 }
 
 fn main() -> Result<(), HasherError> {
@@ -72,8 +75,13 @@ fn main() -> Result<(), HasherError> {
         .pattern
         .clone()
         .unwrap_or("NO_VALID_PATTERN".to_string());
-    let root = args.directory.clone();
-    let mut myhasher = match Hasher::new(args.algorithm, root, pattern) {
+
+    let mut myhasher = match Hasher::new(
+        args.algorithm,
+        args.directory.clone(),
+        pattern,
+        args.logfile,
+    ) {
         Ok(v) => v,
         Err(err) => {
             error!("[!] Hasher constructor error => {err}");
