@@ -388,21 +388,6 @@ fn canonicalize_split_filepath(
 
 const BUFSIZE: usize = 1024 * 1024 * 2; // 2 MB
 
-#[cfg(not(target_os = "linux"))]
-fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
-    let mut hasher = select_hasher(alg);
-    let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
-    let mut file = File::open(path)?;
-    loop {
-        let read_count = file.read(&mut buffer[..BUFSIZE])?;
-        hasher.update(&buffer[..read_count]);
-        if read_count < BUFSIZE {
-            break;
-        }
-    }
-    Ok(hex::encode(hasher.finalize()))
-}
-
 #[cfg(target_os = "linux")]
 #[repr(C, align(4096))]
 struct AlignedHashBuffer([u8; BUFSIZE]);
@@ -410,20 +395,34 @@ struct AlignedHashBuffer([u8; BUFSIZE]);
 #[cfg(target_os = "linux")]
 use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
 
-#[cfg(target_os = "linux")]
 fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
-    const O_DIRECT: i32 = 0x4000; // Linux
     let mut hasher = select_hasher(alg);
-    let mut buffer: Box<AlignedHashBuffer> = Box::new(AlignedHashBuffer([0u8; BUFSIZE]));
-    let mut file = OpenOptions::new()
-        .read(true)
-        .custom_flags(O_DIRECT)
-        .open(path)?;
-    loop {
-        let read_count = file.read(&mut buffer.0[..BUFSIZE])?;
-        hasher.update(&buffer.0[..read_count]);
-        if read_count < BUFSIZE {
-            break;
+    #[cfg(target_os = "linux")]
+    {
+        const O_DIRECT: i32 = 0x4000; // Linux
+        let mut buffer: Box<AlignedHashBuffer> = Box::new(AlignedHashBuffer([0u8; BUFSIZE]));
+        let mut file = OpenOptions::new()
+            .read(true)
+            .custom_flags(O_DIRECT)
+            .open(path)?;
+        loop {
+            let read_count = file.read(&mut buffer.0[..BUFSIZE])?;
+            hasher.update(&buffer.0[..read_count]);
+            if read_count < BUFSIZE {
+                break;
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
+        let mut file = File::open(path)?;
+        loop {
+            let read_count = file.read(&mut buffer[..BUFSIZE])?;
+            hasher.update(&buffer[..read_count]);
+            if read_count < BUFSIZE {
+                break;
+            }
         }
     }
     Ok(hex::encode(hasher.finalize()))
