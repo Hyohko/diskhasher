@@ -272,6 +272,9 @@ impl Hasher {
                     continue;
                 } // No error for now, keep processing
             };
+            //if size == 0 {
+            //    warn!("[!] File {} is empty, skipping", path.display())
+            //}
             file_vec.push(FileData::new(size, path));
             files_added += 1;
             if files_added % 500 == 0 {
@@ -307,7 +310,6 @@ impl Hasher {
     }
 
     fn start_hash_threads(&mut self, force: bool, verbose: bool) -> Result<usize, HasherError> {
-        const EMPTY_STRING: String = String::new();
         info!(
             "[+] Checking hashes - spinning up {} worker threads",
             self.pool.max_count()
@@ -315,22 +317,15 @@ impl Hasher {
 
         let num_files = self.checkedfiles.len();
         while let Some(mut ck) = self.checkedfiles.pop() {
-            if !&self.hashmap.contains_key(ck.path()) {
-                if !force {
+            match self.hashmap.remove(ck.path()) {
+                Some(mut v) => {
+                    ck.set_hash(&mut v);
+                }
+                None => {
                     warn!("[!] {:?} => No hash found", ck.path());
                     self.hashcount_monitor(num_files);
-                    continue;
                 }
-            }
-            {
-                // Scope
-                let mut expected_hash = self
-                    .hashmap
-                    .get(ck.path())
-                    .unwrap_or(&EMPTY_STRING)
-                    .to_string();
-                ck.set_hash(&mut expected_hash);
-            }
+            };
             let alg = self.alg;
             self.pool.execute(move || {
                 perform_hash(ck, alg, force, verbose, num_files).ok();
@@ -386,30 +381,45 @@ fn canonicalize_split_filepath(
     Ok(canonical_result)
 }
 
-const BUFSIZE: usize = 1024 * 1024 * 2; // 2 MB
+const SIZE_2MB: usize = 1024 * 1024 * 2; // 2 MB
+const READS_PER_256MB: i32 = 128;
 
 #[cfg(target_os = "linux")]
 #[repr(C, align(4096))]
-struct AlignedHashBuffer([u8; BUFSIZE]);
+struct AlignedHashBuffer([u8; SIZE_2MB]);
 
 #[cfg(target_os = "linux")]
 use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
 
 fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
     let mut hasher = select_hasher(alg);
+    let mut num_blocks: i32 = 0;
+    let mut reads: i32 = 0;
+    // every 512 reads, 1GB has been processed
     #[cfg(target_os = "linux")]
     {
         const O_DIRECT: i32 = 0x4000; // Linux
-        let mut buffer: Box<AlignedHashBuffer> = Box::new(AlignedHashBuffer([0u8; BUFSIZE]));
+        let mut buffer: Box<AlignedHashBuffer> = Box::new(AlignedHashBuffer([0u8; SIZE_2MB]));
         let mut file = OpenOptions::new()
             .read(true)
             .custom_flags(O_DIRECT)
             .open(path)?;
         loop {
-            let read_count = file.read(&mut buffer.0[..BUFSIZE])?;
+            let read_count = file.read(&mut buffer.0[..SIZE_2MB])?;
             hasher.update(&buffer.0[..read_count]);
-            if read_count < BUFSIZE {
+            if read_count < SIZE_2MB {
                 break;
+            }
+            reads += 1;
+            if reads % READS_PER_256MB == 0 {
+                num_blocks += 1;
+                info!(
+                    "{:.2} GB processed for {:?}",
+                    (num_blocks) as f32 / 4.0,
+                    // We've already validated that 'path' has a valid file_name() or else
+                    // the open command would have failed
+                    path.file_name().unwrap()
+                );
             }
         }
     }
@@ -418,10 +428,20 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
         let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
         let mut file = File::open(path)?;
         loop {
-            let read_count = file.read(&mut buffer[..BUFSIZE])?;
+            let read_count = file.read(&mut buffer[..SIZE_2MB])?;
             hasher.update(&buffer[..read_count]);
-            if read_count < BUFSIZE {
+            if read_count < SIZE_2MB {
                 break;
+            }
+            if reads % READS_PER_256MB == 0 {
+                num_blocks += 1;
+                info!(
+                    "{:.2} GB processed for {:?}",
+                    (num_blocks) as f32 / 4.0,
+                    // We've already validated that 'path' has a valid file_name() or else
+                    // the open command would have failed
+                    path.file_name().unwrap()
+                );
             }
         }
     }
@@ -493,9 +513,7 @@ fn increment_hashcount_func(
         info!("[*] ({pct_complete:.2}%) {curr_hashes} hashes complete");
     }
     if curr_hashes == total_files {
-        info!(
-            "[*] ({pct_complete:.2}%) {curr_hashes} hashes! Processing last file, queue is empty"
-        );
+        info!("[*] ({pct_complete:.2}%) {curr_hashes} hashes - Hashing Complete");
     }
 }
 
@@ -524,7 +542,6 @@ fn perform_hash(
     verbose: bool,
     num_files: usize,
 ) -> Result<(), HasherError> {
-    increment_hashcount(num_files);
     let actual_hash = hash_file(fdata.path(), alg)?;
     if force {
         let result = format!(
@@ -555,6 +572,7 @@ fn perform_hash(
             error!("{result}");
         }
     }
+    increment_hashcount(num_files);
     Ok(())
 }
 
