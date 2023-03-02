@@ -75,16 +75,16 @@ fn main() -> Result<(), HasherError> {
     let root = args.directory.clone();
     let mut myhasher = match Hasher::new(args.algorithm, root, pattern) {
         Ok(v) => v,
-        Err(_e) => {
-            error!("[!] Hasher constructor error => {}", _e);
-            return Err(_e);
+        Err(err) => {
+            error!("[!] Hasher constructor error => {err}");
+            return Err(err);
         }
     };
     let _runval = match myhasher.run(args.force, args.verbose, args.largest) {
         Ok(v) => v,
-        Err(_e) => {
-            error!("[!] Hasher runtime failure => {}", _e);
-            return Err(_e);
+        Err(err) => {
+            error!("[!] Hasher runtime failure => {err}");
+            return Err(err);
         }
     };
     info!("[+] Done");

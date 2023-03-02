@@ -39,6 +39,7 @@ use {
     std::fs,
     std::fs::File,
     std::io::{BufRead, BufReader, Read},
+    std::mem,
     std::path::{Path, PathBuf},
     std::sync::atomic::{AtomicUsize, Ordering},
     std::sync::Mutex,
@@ -75,8 +76,8 @@ impl FileData {
     fn hash(&self) -> &String {
         &self.expected_hash
     }
-    fn set_hash(&mut self, hash: &String) {
-        self.expected_hash = hash.clone();
+    fn set_hash(&mut self, hash: &mut String) {
+        self.expected_hash = mem::take(hash);
     }
 }
 
@@ -146,18 +147,18 @@ impl Hasher {
     ) -> Result<Self, HasherError> {
         let hash_regex = match Regex::new(&hashfile_pattern) {
             Ok(v) => v,
-            Err(e) => {
+            Err(err) => {
                 return Err(RegexError {
-                    why: format!("'{}' returns error {}", hashfile_pattern, e),
+                    why: format!("'{hashfile_pattern}' returns error {err}"),
                 })
             }
         };
-        let root = HasherUtil::canonicalize_path(&root_dir, FileType::IsDir)?;
+        let root = canonicalize_path(&root_dir, FileType::IsDir)?;
         let num_threads = match thread::available_parallelism() {
             Ok(v) => v.get(),
-            Err(_e) => {
+            Err(err) => {
                 return Err(ThreadingError {
-                    why: format!("{}: Couldn't get number of available threads", _e),
+                    why: format!("{err}: Couldn't get number of available threads"),
                 });
             }
         };
@@ -200,7 +201,7 @@ impl Hasher {
 
     //  Private Functions
     fn hashcount_monitor(&self, total_files: usize) {
-        HasherUtil::increment_hashcount(total_files);
+        increment_hashcount(total_files);
     }
 
     fn join(&self) -> Result<(), HasherError> {
@@ -215,40 +216,34 @@ impl Hasher {
             let mut hashpath = f.path().clone();
             hashpath.pop();
 
-            // Open file
             let file = File::open(f.path()).or_else(|err| {
                 return Err(FileError {
-                    why: format!("{} : Hashfile cannot be opened", err),
+                    why: format!("{err} : Hashfile cannot be opened"),
                     path: f.path_string(),
                 });
             })?;
 
-            // Read file
             let reader = BufReader::new(file);
             let mut num_lines: i32 = 0;
             for line in reader.lines() {
                 let newline = line.or_else(|err| {
                     return Err(FileError {
-                        why: format!("{} : Line from file cannot be read", err),
+                        why: format!("{err} : Line from file cannot be read"),
                         path: f.path_string(),
                     });
                 })?;
 
-                let (hashval, canonical_path) =
-                    match HasherUtil::split_hashfile_line(&newline, &hashpath) {
-                        Ok(v) => v,
-                        Err(_e) => {
-                            error!(
-                                "[!] Failed to parse {}, ignore and continue parsing",
-                                newline
-                            );
-                            continue;
-                        }
-                    };
+                let (hashval, canonical_path) = match split_hashfile_line(&newline, &hashpath) {
+                    Ok(v) => v,
+                    Err(err) => {
+                        error!("[!] {err} : Failed to parse line from hashfile :: '{newline}'");
+                        continue;
+                    }
+                };
                 self.hashmap.insert(canonical_path, hashval);
                 num_lines += 1;
                 if num_lines % 500 == 0 {
-                    info!("[*] {} hashes read from {}", num_lines, f.path_string());
+                    info!("[*] {num_lines} hashes read from {}", f.path_string());
                 }
             }
         }
@@ -269,18 +264,18 @@ impl Hasher {
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
         {
-            let path = entry.path();
+            let path = entry.path().to_path_buf();
             let size: u64 = match path.metadata() {
                 Ok(f) => f.len(),
-                Err(_e) => {
-                    error!("[!] Failed to get metadata for {}", path.display());
+                Err(err) => {
+                    error!("[!] Failed to get metadata for {} : {err}", path.display());
                     continue;
                 } // No error for now, keep processing
             };
-            file_vec.push(FileData::new(size, path.to_path_buf()));
+            file_vec.push(FileData::new(size, path));
             files_added += 1;
             if files_added % 500 == 0 {
-                info!("[*] Added {} files to be hashed", files_added);
+                info!("[*] Added {files_added} files to be hashed");
             }
         }
 
@@ -288,18 +283,17 @@ impl Hasher {
         info!("[+] Identifying hashfiles");
         (self.hashfiles, self.checkedfiles) = file_vec
             .into_iter()
-            .partition(|f| HasherUtil::path_matches_regex(&self.hash_regex, f.path()));
+            .partition(|f| path_matches_regex(&self.hash_regex, f.path()));
         if self.hashfiles.len() == 0 {
             let reason = "No hashfiles matched the hashfile pattern".to_string();
             if !force {
                 return Err(RegexError { why: reason });
             } else {
-                warn!("{}", reason);
+                warn!("{reason}");
             }
         }
         info!("[*] {} files in the queue", self.checkedfiles.len());
 
-        // Sort vector by file size, smallest first
         if largest_first {
             info!("[*] Sorting files by size, largest first");
             self.checkedfiles
@@ -330,242 +324,270 @@ impl Hasher {
             }
             {
                 // Scope
-                let expected_hash = self
+                let mut expected_hash = self
                     .hashmap
                     .get(ck.path())
                     .unwrap_or(&EMPTY_STRING)
                     .to_string();
-                ck.set_hash(&expected_hash);
+                ck.set_hash(&mut expected_hash);
             }
             let alg = self.alg;
             self.pool.execute(move || {
-                HasherUtil::perform_hash(ck, alg, force, verbose, num_files).ok();
+                perform_hash(ck, alg, force, verbose, num_files).ok();
             });
         } // end while
         Ok(num_files)
     }
 }
 
-struct HasherUtil {}
-
 // Static Functions
-impl HasherUtil {
-    fn canonicalize_path(path: &String, filetype: FileType) -> std::io::Result<PathBuf> {
-        let root_path = fs::canonicalize(Path::new(&path))?;
-        match filetype {
-            FileType::IsDir => {
-                if !root_path.is_dir() {
-                    let emsg = format!(
-                        "[-] Path '{}' is not a valid directory",
-                        root_path.display()
-                    );
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, emsg));
-                }
-            }
-            FileType::IsFile => {
-                if !root_path.is_file() {
-                    let emsg = format!(
-                        "[-] Path '{}' is not a valid directory",
-                        root_path.display()
-                    );
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, emsg));
-                }
-            }
-        };
-        Ok(root_path)
-    }
-
-    fn canonicalize_split_filepath(
-        splitline: &Vec<&str>,
-        hashpath: &PathBuf,
-    ) -> Result<PathBuf, HasherError> {
-        let file_path = splitline[1..].join(" ");
-
-        let mut file_path_buf = Path::new(&file_path).to_path_buf();
-        if file_path_buf.is_absolute() {
-            return Ok(file_path_buf);
-        }
-        if !file_path.starts_with("./") {
-            let new_file_path = format!("{}{}", "./", file_path);
-            file_path_buf = Path::new(&new_file_path).to_path_buf();
-        }
-        file_path_buf = hashpath.join(&file_path_buf);
-        let canonical_result =
-            HasherUtil::canonicalize_path(&file_path_buf.display().to_string(), FileType::IsFile)?;
-        Ok(canonical_result)
-    }
-
-    fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
-        let mut hasher = HasherUtil::select_hasher(alg);
-
-        const BUFSIZE: usize = 1024 * 1024 * 2; // 2 MB
-        let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
-        let mut file = File::open(path)?;
-
-        loop {
-            let read_count = file.read(&mut buffer[..BUFSIZE])?;
-            hasher.update(&buffer[..read_count]);
-            if read_count < BUFSIZE {
-                break;
-            }
-        }
-        Ok(hex::encode(hasher.finalize()))
-    }
-
-    fn hexstring_is_valid(hexstring: &str) -> bool {
-        match hexstring.len() {
-            32 | 48 | 56 | 64 | 96 | 128 => {
-                for chr in hexstring.chars() {
-                    if !chr.is_ascii_hexdigit() {
-                        return false;
-                    }
-                }
-                return true;
-            }
-            _ => return false,
-        }
-    }
-
-    // Why the separation? We may want to have a per-Hasher object mutex
-    // and hash count if we spin up multiple. Future-proofing.
-    fn increment_hashcount(total_files: usize) {
-        static S_MONITOR_MUTEX: Mutex<bool> = Mutex::new(false);
-        static S_ATOMIC_HASHCOUNT: AtomicUsize = AtomicUsize::new(0);
-        HasherUtil::increment_hashcount_func(&S_ATOMIC_HASHCOUNT, &S_MONITOR_MUTEX, total_files);
-    }
-
-    fn increment_hashcount_func(
-        _atomic_hashcount: &AtomicUsize,
-        _monitor_mutex: &Mutex<bool>,
-        total_files: usize,
-    ) {
-        let _guard = _monitor_mutex
-            .lock()
-            .expect("If a mutex lock fails, there is a design flaw. Rewrite code.");
-        if total_files == 0 {
-            warn!("[!] No files to hash");
-            return;
-        }
-        _atomic_hashcount.fetch_add(1, Ordering::SeqCst);
-        let curr_hashes: usize = _atomic_hashcount.load(Ordering::SeqCst);
-        let pct_complete: f64 = ((curr_hashes) as f64 / (total_files) as f64) * 100.0;
-        let approx_five_pct: usize = total_files / 20;
-        if curr_hashes % 500 == 0 || curr_hashes % approx_five_pct == 0 {
-            info!("[*] ({:.2}%) {} hashes complete", pct_complete, curr_hashes);
-        }
-        if curr_hashes == total_files {
-            info!(
-                "[*] ({:.2}%) {} hashes complete! No more files to hash",
-                pct_complete, curr_hashes
-            );
-        }
-    }
-
-    fn path_matches_regex(hash_regex: &Regex, file_path: &PathBuf) -> bool {
-        let str_path = match file_path.file_name() {
-            Some(v) => v,
-            None => {
-                error!("[-] Failed to retrieve file name from path object");
-                return false;
-            }
-        };
-        let is_match = hash_regex.is_match(match str_path.to_str() {
-            Some(v) => v,
-            None => {
-                error!("[-] Path string failed to parse");
-                return false;
-            }
-        });
-        is_match
-    }
-
-    fn perform_hash(
-        fdata: FileData,
-        alg: HashAlg,
-        force: bool,
-        verbose: bool,
-        num_files: usize,
-    ) -> Result<(), HasherError> {
-        HasherUtil::increment_hashcount(num_files);
-        let actual_hash = HasherUtil::hash_file(fdata.path(), alg)?;
-        if force {
-            let result = format!(
-                "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}",
-                fdata.path(),
-                actual_hash
-            );
-            info!("{}", result);
-        } else {
-            // Compare
-            let success: bool = fdata.hash() == &actual_hash;
-            if success {
-                if verbose {
-                    let result = format!(
-                        "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}",
-                        fdata.path(),
-                        actual_hash
-                    );
-                    info!("{}", result);
-                }
-            } else {
-                let result =
-                    format!(
-                    "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",
-                    fdata.path(), fdata.hash(), actual_hash
+fn canonicalize_path(path: &String, filetype: FileType) -> std::io::Result<PathBuf> {
+    let root_path = fs::canonicalize(Path::new(&path))?;
+    match filetype {
+        FileType::IsDir => {
+            if !root_path.is_dir() {
+                let emsg = format!(
+                    "[-] Path '{}' is not a valid directory",
+                    root_path.display()
                 );
-                error!("{}", result);
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, emsg));
             }
         }
-        Ok(())
-    }
-
-    fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
-        match alg {
-            HashAlg::MD5 => Box::new(md5::Md5::default()),
-            HashAlg::SHA1 => Box::new(sha1::Sha1::default()),
-            HashAlg::SHA224 => Box::new(sha2::Sha224::default()),
-            HashAlg::SHA256 => Box::new(sha2::Sha256::default()),
-            HashAlg::SHA384 => Box::new(sha2::Sha384::default()),
-            HashAlg::SHA512 => Box::new(sha2::Sha512::default()),
+        FileType::IsFile => {
+            if !root_path.is_file() {
+                let emsg = format!(
+                    "[-] Path '{}' is not a valid directory",
+                    root_path.display()
+                );
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, emsg));
+            }
         }
-    }
-
-    fn split_hashfile_line(
-        newline: &String,
-        hashpath: &PathBuf,
-    ) -> Result<(String, PathBuf), HasherError> {
-        let splitline: Vec<&str> = newline.split_whitespace().collect();
-        if splitline.len() < 2 {
-            return Err(ParseError {
-                why: format!("Line does not have enough elements: {}", newline),
-            });
-        }
-
-        let hashval: &str = splitline[0];
-        //if !regex_pattern.is_match(hashval) {
-        if !HasherUtil::hexstring_is_valid(hashval) {
-            return Err(ParseError {
-                why: "Line does not start with a valid hex string".to_string(),
-            });
-        }
-        let canonical_path = HasherUtil::canonicalize_split_filepath(&splitline, hashpath)?;
-        Ok((hashval.to_string(), canonical_path))
-    }
+    };
+    Ok(root_path)
 }
 
-/*fn hash_hexpattern() -> Regex {
+fn canonicalize_split_filepath(
+    splitline: &Vec<&str>,
+    hashpath: &PathBuf,
+) -> Result<PathBuf, HasherError> {
+    let file_path = splitline[1..].join(" ");
+
+    let mut file_path_buf = Path::new(&file_path).to_path_buf();
+    if file_path_buf.is_absolute() {
+        return Ok(file_path_buf);
+    }
+    if !file_path.starts_with("./") {
+        let new_file_path = format!("./{file_path}");
+        file_path_buf = Path::new(&new_file_path).to_path_buf();
+    }
+    file_path_buf = hashpath.join(&file_path_buf);
+    let canonical_result =
+        canonicalize_path(&file_path_buf.display().to_string(), FileType::IsFile)?;
+    Ok(canonical_result)
+}
+
+const BUFSIZE: usize = 1024 * 1024 * 2; // 2 MB
+
+#[cfg(not(target_os = "linux"))]
+fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
+    let mut hasher = select_hasher(alg);
+    let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
+    let mut file = File::open(path)?;
+    loop {
+        let read_count = file.read(&mut buffer[..BUFSIZE])?;
+        hasher.update(&buffer[..read_count]);
+        if read_count < BUFSIZE {
+            break;
+        }
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+#[cfg(target_os = "linux")]
+#[repr(C, align(4096))]
+struct AlignedHashBuffer([u8; BUFSIZE]);
+
+#[cfg(target_os = "linux")]
+use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
+
+#[cfg(target_os = "linux")]
+fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
+    const O_DIRECT: i32 = 0x4000; // Linux
+    let mut hasher = select_hasher(alg);
+    let mut buffer: Box<AlignedHashBuffer> = Box::new(AlignedHashBuffer([0u8; BUFSIZE]));
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(O_DIRECT)
+        .open(path)?;
+    loop {
+        let read_count = file.read(&mut buffer.0[..BUFSIZE])?;
+        hasher.update(&buffer.0[..read_count]);
+        if read_count < BUFSIZE {
+            break;
+        }
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+use lazy_static::lazy_static;
+lazy_static! {
+    static ref HEXSTRING_PATTERN: Regex = hash_hexpattern();
+}
+
+fn hash_hexpattern() -> Regex {
     const STR_REGEX: &str = concat!(
         r"([[:xdigit:]]{32})|", // MD5
-        r"([[:xdigit:]]{48})|", // SHA1
+        r"([[:xdigit:]]{40})|", // SHA1
         r"([[:xdigit:]]{56})|", // SHA224
         r"([[:xdigit:]]{64})|", // SHA256
         r"([[:xdigit:]]{96})|", // SHA384
         r"([[:xdigit:]]{128})", // SHA512
     );
-    // error checking omitted b/c we've already validated this
-    // regex string as correct
-    Regex::new(&STR_REGEX).unwrap()
-}*/
+    // As this regex is initialized at process startup, panic instead
+    // of returning an error
+    let expr = match Regex::new(&STR_REGEX) {
+        Ok(v) => v,
+        Err(_e) => panic!("[!] Regular expression engine startup failure"),
+    };
+    expr
+}
+
+fn hexstring_is_valid(hexstring: &str) -> bool {
+    match hexstring.len() {
+        32 | 40 | 56 | 64 | 96 | 128 => {
+            for chr in hexstring.chars() {
+                if !chr.is_ascii_hexdigit() {
+                    return false;
+                }
+            }
+            return true;
+        }
+        _ => return false,
+    }
+}
+
+// Why the separation? We may want to have a per-Hasher object mutex
+// and hash count if we spin up multiple. Future-proofing.
+fn increment_hashcount(total_files: usize) {
+    static S_MONITOR_MUTEX: Mutex<bool> = Mutex::new(false);
+    static S_ATOMIC_HASHCOUNT: AtomicUsize = AtomicUsize::new(0);
+    increment_hashcount_func(&S_ATOMIC_HASHCOUNT, &S_MONITOR_MUTEX, total_files);
+}
+
+fn increment_hashcount_func(
+    _atomic_hashcount: &AtomicUsize,
+    _monitor_mutex: &Mutex<bool>,
+    total_files: usize,
+) {
+    let _guard = _monitor_mutex
+        .lock()
+        .expect("If a mutex lock fails, there is a design flaw. Rewrite code.");
+    if total_files == 0 {
+        warn!("[!] No files to hash");
+        return;
+    }
+    _atomic_hashcount.fetch_add(1, Ordering::SeqCst);
+    let curr_hashes: usize = _atomic_hashcount.load(Ordering::SeqCst);
+    let pct_complete: f64 = ((curr_hashes) as f64 / (total_files) as f64) * 100.0;
+    let approx_five_pct: usize = total_files / 20;
+    if curr_hashes % 500 == 0 || curr_hashes % approx_five_pct == 0 {
+        info!("[*] ({pct_complete:.2}%) {curr_hashes} hashes complete");
+    }
+    if curr_hashes == total_files {
+        info!("[*] ({pct_complete:.2}%) {curr_hashes} hashes complete! No more files to hash");
+    }
+}
+
+fn path_matches_regex(hash_regex: &Regex, file_path: &PathBuf) -> bool {
+    let str_path = match file_path.file_name() {
+        Some(v) => v,
+        None => {
+            error!("[-] Failed to retrieve file name from path object");
+            return false;
+        }
+    };
+    let is_match = hash_regex.is_match(match str_path.to_str() {
+        Some(v) => v,
+        None => {
+            error!("[-] Path string failed to parse");
+            return false;
+        }
+    });
+    is_match
+}
+
+fn perform_hash(
+    fdata: FileData,
+    alg: HashAlg,
+    force: bool,
+    verbose: bool,
+    num_files: usize,
+) -> Result<(), HasherError> {
+    increment_hashcount(num_files);
+    let actual_hash = hash_file(fdata.path(), alg)?;
+    if force {
+        let result = format!(
+            "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}",
+            fdata.path(),
+            actual_hash
+        );
+        info!("{result}");
+    } else {
+        // Compare
+        let success: bool = fdata.hash() == &actual_hash;
+        if success {
+            if verbose {
+                let result = format!(
+                    "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}",
+                    fdata.path(),
+                    actual_hash
+                );
+                info!("{result}");
+            }
+        } else {
+            let result = format!(
+                "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",
+                fdata.path(),
+                fdata.hash(),
+                actual_hash
+            );
+            error!("{result}");
+        }
+    }
+    Ok(())
+}
+
+fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
+    match alg {
+        HashAlg::MD5 => Box::new(md5::Md5::default()),
+        HashAlg::SHA1 => Box::new(sha1::Sha1::default()),
+        HashAlg::SHA224 => Box::new(sha2::Sha224::default()),
+        HashAlg::SHA256 => Box::new(sha2::Sha256::default()),
+        HashAlg::SHA384 => Box::new(sha2::Sha384::default()),
+        HashAlg::SHA512 => Box::new(sha2::Sha512::default()),
+    }
+}
+
+fn split_hashfile_line(
+    newline: &String,
+    hashpath: &PathBuf,
+) -> Result<(String, PathBuf), HasherError> {
+    let splitline: Vec<&str> = newline.split_whitespace().collect();
+    if splitline.len() < 2 {
+        return Err(ParseError {
+            why: format!("Line does not have enough elements: {newline}"),
+        });
+    }
+    let hashval: &str = splitline[0];
+    //if !HEXSTRING_PATTERN.is_match(hashval) {
+    if !hexstring_is_valid(hashval) {
+        return Err(ParseError {
+            why: "Line does not start with a valid hex string".to_string(),
+        });
+    }
+    let canonical_path = canonicalize_split_filepath(&splitline, hashpath)?;
+    Ok((hashval.to_string(), canonical_path))
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 /// TESTS
