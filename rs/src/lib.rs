@@ -494,7 +494,9 @@ fn increment_hashcount_func(
         info!("[*] ({pct_complete:.2}%) {curr_hashes} hashes complete");
     }
     if curr_hashes == total_files {
-        info!("[*] ({pct_complete:.2}%) {curr_hashes} hashes complete! No more files to hash");
+        info!(
+            "[*] ({pct_complete:.2}%) {curr_hashes} hashes! Processing last file, queue is empty"
+        );
     }
 }
 
