@@ -351,25 +351,23 @@ impl Hasher {
 }
 
 // Static Functions
-fn canonicalize_path(path: &String, filetype: FileType) -> std::io::Result<PathBuf> {
+fn canonicalize_path(path: &String, filetype: FileType) -> Result<PathBuf, HasherError> {
     let root_path = fs::canonicalize(Path::new(&path))?;
     match filetype {
         FileType::IsDir => {
             if !root_path.is_dir() {
-                let emsg = format!(
-                    "[-] Path '{}' is not a valid directory",
-                    root_path.display()
-                );
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, emsg));
+                return Err(FileError {
+                    why: "Path is not a valid directory".to_string(),
+                    path: root_path.display().to_string(),
+                });
             }
         }
         FileType::IsFile => {
             if !root_path.is_file() {
-                let emsg = format!(
-                    "[-] Path '{}' is not a valid directory",
-                    root_path.display()
-                );
-                return Err(std::io::Error::new(std::io::ErrorKind::Other, emsg));
+                return Err(FileError {
+                    why: "Path is not a valid file".to_string(),
+                    path: root_path.display().to_string(),
+                });
             }
         }
     };
@@ -429,37 +427,38 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
     let mut hasher = select_hasher(alg);
     let mut num_blocks: i32 = 0;
     let mut reads: i32 = 0;
-    // every 512 reads, 1GB has been processed
-    #[cfg(target_os = "linux")]
-    {
-        const O_DIRECT: i32 = 0x4000; // Linux
-        let mut buffer: Box<AlignedHashBuffer> = Box::new(AlignedHashBuffer([0u8; SIZE_2MB]));
-        let mut file = OpenOptions::new()
-            .read(true)
-            .custom_flags(O_DIRECT)
-            .open(path)?;
-        loop {
-            let read_count = file.read(&mut buffer.0[..SIZE_2MB])?;
-            hasher.update(&buffer.0[..read_count]);
-            if read_count < SIZE_2MB {
-                break;
-            }
-            display_gb!(reads, num_blocks, path);
-        }
-    }
+    const O_DIRECT: i32 = 0x4000; // Linux
+
     #[cfg(not(target_os = "linux"))]
-    {
-        let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
-        let mut file = File::open(path)?;
-        loop {
-            let read_count = file.read(&mut buffer[..SIZE_2MB])?;
-            hasher.update(&buffer[..read_count]);
-            if read_count < SIZE_2MB {
-                break;
-            }
-            display_gb!(reads, num_blocks, path);
+    let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
+
+    #[cfg(target_os = "linux")]
+    let mut buffer: Box<AlignedHashBuffer> = Box::new(AlignedHashBuffer([0u8; SIZE_2MB]));
+
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(O_DIRECT)
+        .open(path)?;
+    loop {
+        let read_count: usize;
+        #[cfg(target_os = "linux")]
+        {
+            read_count = file.read(&mut buffer.0[..SIZE_2MB])?;
+            hasher.update(&buffer.0[..read_count]);
         }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            read_count = file.read(&mut buffer[..SIZE_2MB])?;
+            hasher.update(&buffer[..read_count]);
+        }
+
+        if read_count < SIZE_2MB {
+            break;
+        }
+        display_gb!(reads, num_blocks, path);
     }
+
     Ok(hex::encode(hasher.finalize()))
 }
 
@@ -484,20 +483,6 @@ fn hash_hexpattern() -> Regex {
         Err(_e) => panic!("[!] Regular expression engine startup failure"),
     };
     expr
-}
-
-fn hexstring_is_valid(hexstring: &str) -> bool {
-    match hexstring.len() {
-        32 | 40 | 56 | 64 | 96 | 128 => {
-            for chr in hexstring.chars() {
-                if !chr.is_ascii_hexdigit() {
-                    return false;
-                }
-            }
-            return true;
-        }
-        _ => return false,
-    }
 }
 
 // Why the separation? We may want to have a per-Hasher object mutex
@@ -618,13 +603,30 @@ fn split_hashfile_line(
     }
     let hashval: &str = splitline[0];
     //if !HEXSTRING_PATTERN.is_match(hashval) {
-    if !hexstring_is_valid(hashval) {
-        return Err(ParseError {
-            why: "Line does not start with a valid hex string".to_string(),
-        });
-    }
+    validate_hexstring(hashval)?;
     let canonical_path = canonicalize_split_filepath(&splitline, hashpath)?;
     Ok((hashval.to_string(), canonical_path))
+}
+
+fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
+    let hexlen = hexstring.len();
+    match hexlen {
+        32 | 40 | 56 | 64 | 96 | 128 => {
+            for chr in hexstring.chars() {
+                if !chr.is_ascii_hexdigit() {
+                    return Err(ParseError {
+                        why: "Non-hex character found".to_string(),
+                    });
+                }
+            }
+            return Ok(());
+        }
+        _ => {
+            return Err(ParseError {
+                why: format!("Bad hexstring length: {hexlen}"),
+            });
+        }
+    }
 }
 
 fn write_to_log(msg: &String, loghandle: &Option<Arc<Mutex<File>>>) {

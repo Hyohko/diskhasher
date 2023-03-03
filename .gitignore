@@ -35,3 +35,6 @@ test/kernel-sources
 
 Cargo.lock
 target/
+
+# test artifacts
+rs/exists.txt

@@ -23,36 +23,155 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
-use super::*;
 
-#[test]
-fn splitline_empty() {
-    let newline: String = "".to_string();
-    let hashpath: PathBuf = PathBuf::new();
-    let result = split_hashfile_line(&newline, &hashpath /*&hash_hexpattern()*/);
-    assert!(result.is_err());
+mod canonicalize_path {
+    use crate::*;
+
+    #[test]
+    fn file_notexist() {
+        let badfile: String = "./doesnotexist.txt".to_string();
+        assert!(canonicalize_path(&badfile, FileType::IsFile).is_err());
+    }
+
+    #[test]
+    fn dir_notexist() {
+        let badfile: String = "./doesnotexist/".to_string();
+        assert!(canonicalize_path(&badfile, FileType::IsDir).is_err());
+    }
 }
 
-#[test]
-fn splitline_notenough_args() {
-    let newline: String = "asdfasdfasdf".to_string();
-    let hashpath: PathBuf = PathBuf::new();
-    let result = split_hashfile_line(&newline, &hashpath /*&hash_hexpattern()*/);
-    assert!(result.is_err());
+mod path_matches_regex {
+    use crate::*;
+
+    #[test]
+    fn good_matches() {
+        let regex = Regex::new("result(.)*").unwrap();
+        let path: Vec<PathBuf> = vec![
+            PathBuf::from("result1.txt"),             // numeral
+            PathBuf::from("resultAAAA.txt"),          //extra chars
+            PathBuf::from("result is this file.txt"), // whitepace
+            PathBuf::from("result_bohème.txt"),      // non-ascii chars
+        ];
+        for p in path {
+            assert!(path_matches_regex(&regex, &p));
+        }
+    }
+
+    #[test]
+    fn bad_matches() {
+        let regex = Regex::new("result(.)*").unwrap();
+        let path: Vec<PathBuf> = vec![
+            PathBuf::from("esult1.txt"),   // missing letter
+            PathBuf::from("ressult1.txt"), // doubled letter
+            PathBuf::from("resualt1.txt"), // extra letter
+        ];
+        for p in path {
+            assert!(!path_matches_regex(&regex, &p));
+        }
+    }
 }
 
-#[test]
-fn splitline_badhash() {
-    let newline: String = "asdfasdfasdf asdfasdfasdfasdf".to_string();
-    let hashpath: PathBuf = PathBuf::new();
-    let result = split_hashfile_line(&newline, &hashpath /*&hash_hexpattern()*/);
-    assert!(result.is_err());
+mod splitline {
+    use crate::*;
+    #[test]
+    fn empty() {
+        let newline: String = "".to_string();
+        let hashpath: PathBuf = PathBuf::new();
+        assert!(split_hashfile_line(&newline, &hashpath).is_err());
+    }
+
+    #[test]
+    fn notenough_args() {
+        let newline: String = "asdfasdfasdf".to_string();
+        let hashpath: PathBuf = PathBuf::new();
+        assert!(split_hashfile_line(&newline, &hashpath).is_err());
+    }
+
+    #[test]
+    fn badhash() {
+        let newline: String = "asdfasdfasdf asdfasdfasdfasdf".to_string();
+        let hashpath: PathBuf = PathBuf::new();
+        assert!(split_hashfile_line(&newline, &hashpath).is_err());
+    }
+
+    #[test]
+    fn hashtooshort() {
+        let newline: String = "abcdef123456 asdfasdfasdfasdf".to_string();
+        let hashpath: PathBuf = PathBuf::new();
+        assert!(split_hashfile_line(&newline, &hashpath).is_err());
+    }
+
+    #[test]
+    fn hashnothex() {
+        // MD5 length but has char that is not valid hex
+        let newline: String = "abcdef1234567890abcdef123456789X asdfasdfasdfasdf".to_string();
+        let hashpath: PathBuf = PathBuf::new();
+        assert!(split_hashfile_line(&newline, &hashpath).is_err());
+    }
+
+    #[test]
+    fn badpath() {
+        let bad_path = "./doesnotexist.txt".to_string();
+        let newline: String = format!("abcdef1234567890abcdef1234567890 {bad_path}");
+        let hashpath: PathBuf = PathBuf::new();
+        assert!(split_hashfile_line(&newline, &hashpath).is_err());
+    }
+
+    #[test]
+    fn checklengths() {
+        let good_path = "./exists.txt".to_string();
+        let good_path_display: PathBuf = fs::canonicalize(&good_path).unwrap();
+        {
+            let _testfile = File::create(&good_path);
+        }
+
+        let newlines: Vec<String> = vec![
+            format!("abcdef1234567890abcdef1234567890 {good_path}"), //md5
+            format!("abcdef1234567890abcdef1234567890aabbccdd {good_path}"), //SHA1
+            format!("abcdef1234567890abcdef1234567890abcdef1234567890aabbccdd {good_path}"), //SHA224
+            format!("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}"), //SHA256
+            format!("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}"), //SHA384
+            format!("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}") //SHA512
+        ];
+        for case in newlines {
+            let hashpath: PathBuf = PathBuf::new();
+            let result = split_hashfile_line(&case, &hashpath);
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap().1, good_path_display);
+        }
+    }
 }
 
-#[test]
-fn splitline_hashtooshort() {
-    let newline: String = "abcdef123456 asdfasdfasdfasdf".to_string();
-    let hashpath: PathBuf = PathBuf::new();
-    let result = split_hashfile_line(&newline, &hashpath /*&hash_hexpattern()*/);
-    assert!(result.is_err());
+mod validate_hexstring {
+    use crate::*;
+
+    #[test]
+    fn good_input() {
+        let good_strings: [&str; 6] = [
+            "abcdef1234567890abcdef1234567890",
+            "abcdef1234567890abcdef1234567890aabbccdd",
+            "abcdef1234567890abcdef1234567890abcdef1234567890aabbccdd",
+            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        ];
+        for g in good_strings {
+            assert!(validate_hexstring(g).is_ok());
+        }
+    }
+
+    #[test]
+    fn bad_input() {
+        let bad_strings: [&str; 6] = [
+            "",                                          // zero lengtu
+            "abcdef1234567890abcdef1234567890aabbccd",   // one too short
+            "abcdef1234567890abcdef1234567890aabbccdda", // one too long
+            "abcdef1234567890abc ef1234567890aabbccdd",  // space in the middle
+            "abcdef1234567890abcQef1234567890aabbccdd",  // non-hex char in the middle
+            "abcdef1234567890abcèef1234567890aabbccdd", // unicode char in the middle
+        ];
+        for b in bad_strings {
+            assert!(validate_hexstring(b).is_err());
+        }
+    }
 }
