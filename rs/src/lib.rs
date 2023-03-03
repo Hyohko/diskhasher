@@ -334,7 +334,7 @@ impl Hasher {
                     ck.set_hash(&mut v);
                 }
                 None => {
-                    if force {
+                    if !force {
                         warn!("[!] {:?} => No hash found", ck.path());
                     }
                     self.hashcount_monitor(num_files);
