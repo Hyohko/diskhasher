@@ -121,7 +121,7 @@ custom_error! {pub HasherError
 impl From<std::io::Error> for HasherError {
     fn from(error: std::io::Error) -> Self {
         HasherError::IoError {
-            why: format!("{:?}", error.kind()),
+            why: format!("{:?} => {:?}", error.kind(), error),
         }
     }
 }
@@ -193,16 +193,15 @@ impl Hasher {
         largest_first: bool,
     ) -> Result<(), HasherError> {
         self.recursive_dir(force, largest_first)?;
-        let _e = match self.load_hashes() {
-            Ok(v) => v,
-            Err(err) => match force {
+        if let Err(err) = self.load_hashes() {
+            match force {
                 true => {
                     warn!("[+] No valid hashfile, but --force flag set");
                 }
                 false => {
                     return Err(err);
                 }
-            },
+            }
         };
         let num_files = self.checkedfiles.len();
         self.start_hash_threads(force, verbose)?;

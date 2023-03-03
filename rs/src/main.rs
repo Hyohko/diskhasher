@@ -76,25 +76,27 @@ fn main() -> Result<(), HasherError> {
         .clone()
         .unwrap_or("NO_VALID_PATTERN".to_string());
 
-    let mut myhasher = match Hasher::new(
+    let mut myhasher = Hasher::new(
         args.algorithm,
         args.directory.clone(),
         pattern,
         args.logfile,
-    ) {
+    )?;
+    /*{
         Ok(v) => v,
         Err(err) => {
             error!("[!] Hasher constructor error => {err}");
             return Err(err);
         }
-    };
-    let _runval = match myhasher.run(args.force, args.verbose, args.largest) {
+    };*/
+    myhasher.run(args.force, args.verbose, args.largest)?;
+    /*{
         Ok(v) => v,
         Err(err) => {
             error!("[!] Hasher runtime failure => {err}");
             return Err(err);
         }
-    };
+    };*/
     info!("[+] Done");
     Ok(())
 }
