@@ -396,15 +396,34 @@ fn canonicalize_split_filepath(
     Ok(canonical_result)
 }
 
-const SIZE_2MB: usize = 1024 * 1024 * 2; // 2 MB
-const READS_PER_256MB: i32 = 128;
-
 #[cfg(target_os = "linux")]
 #[repr(C, align(4096))]
 struct AlignedHashBuffer([u8; SIZE_2MB]);
 
 #[cfg(target_os = "linux")]
 use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
+
+const SIZE_2MB: usize = 1024 * 1024 * 2; // 2 MB
+const READS_PER_256MB: i32 = 128;
+
+// Macroize this instead of a function b/c we don't want the
+// overhead of a function call
+#[macro_export]
+macro_rules! display_gb {
+    ( $( $rd:expr, $blk:expr, $pth:expr ),* ) => {
+        {
+            $($rd += 1;
+            if $rd % READS_PER_256MB == 0 {
+                $blk += 1;
+                info!(
+                    "{:.2} GB processed for {:?}",
+                    ($blk) as f32 / 4.0,
+                    $pth.file_name().unwrap()
+                );
+            })*
+        }
+    };
+}
 
 fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
     let mut hasher = select_hasher(alg);
@@ -425,17 +444,7 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
             if read_count < SIZE_2MB {
                 break;
             }
-            reads += 1;
-            if reads % READS_PER_256MB == 0 {
-                num_blocks += 1;
-                info!(
-                    "{:.2} GB processed for {:?}",
-                    (num_blocks) as f32 / 4.0,
-                    // We've already validated that 'path' has a valid file_name() or else
-                    // the open command would have failed
-                    path.file_name().unwrap()
-                );
-            }
+            display_gb!(reads, num_blocks, path);
         }
     }
     #[cfg(not(target_os = "linux"))]
@@ -448,16 +457,7 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
             if read_count < SIZE_2MB {
                 break;
             }
-            if reads % READS_PER_256MB == 0 {
-                num_blocks += 1;
-                info!(
-                    "{:.2} GB processed for {:?}",
-                    (num_blocks) as f32 / 4.0,
-                    // We've already validated that 'path' has a valid file_name() or else
-                    // the open command would have failed
-                    path.file_name().unwrap()
-                );
-            }
+            display_gb!(reads, num_blocks, path);
         }
     }
     Ok(hex::encode(hasher.finalize()))
