@@ -118,6 +118,7 @@ custom_error! {pub HasherError
     IoError{why: String} = "IO Failure => {why}",
 }
 
+// todo https://stackoverflow.com/questions/53934888/how-to-include-the-file-path-in-an-io-error-in-rust
 impl From<std::io::Error> for HasherError {
     fn from(error: std::io::Error) -> Self {
         HasherError::IoError {
@@ -261,7 +262,7 @@ impl Hasher {
 
         if self.hashmap.len() == 0 {
             return Err(HashError {
-                why: "No hashes read from hashfiles".to_string(),
+                why: String::from("No hashes read from hashfiles"),
             });
         }
         Ok(())
@@ -299,7 +300,7 @@ impl Hasher {
             .into_iter()
             .partition(|f| path_matches_regex(&self.hash_regex, f.path()));
         if self.hashfiles.len() == 0 {
-            let reason = "No hashfiles matched the hashfile pattern".to_string();
+            let reason = String::from("No hashfiles matched the hashfile pattern");
             if !force {
                 return Err(RegexError { why: reason });
             } else {
@@ -356,7 +357,7 @@ fn canonicalize_path(path: &String, filetype: FileType) -> Result<PathBuf, Hashe
         FileType::IsDir => {
             if !root_path.is_dir() {
                 return Err(FileError {
-                    why: "Path is not a valid directory".to_string(),
+                    why: String::from("Path is not a valid directory"),
                     path: root_path.display().to_string(),
                 });
             }
@@ -364,7 +365,7 @@ fn canonicalize_path(path: &String, filetype: FileType) -> Result<PathBuf, Hashe
         FileType::IsFile => {
             if !root_path.is_file() {
                 return Err(FileError {
-                    why: "Path is not a valid file".to_string(),
+                    why: String::from("Path is not a valid file"),
                     path: root_path.display().to_string(),
                 });
             }
@@ -604,7 +605,7 @@ fn split_hashfile_line(
     //if !HEXSTRING_PATTERN.is_match(hashval) {
     validate_hexstring(hashval)?;
     let canonical_path = canonicalize_split_filepath(&splitline, hashpath)?;
-    Ok((hashval.to_string(), canonical_path))
+    Ok((String::from(hashval), canonical_path))
 }
 
 fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
@@ -614,7 +615,7 @@ fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
             for chr in hexstring.chars() {
                 if !chr.is_ascii_hexdigit() {
                     return Err(ParseError {
-                        why: "Non-hex character found".to_string(),
+                        why: String::from("Non-hex character found"),
                     });
                 }
             }
