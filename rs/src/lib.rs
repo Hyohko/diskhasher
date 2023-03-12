@@ -380,12 +380,12 @@ fn canonicalize_split_filepath(
 ) -> Result<PathBuf, HasherError> {
     let file_path = splitline[1..].join(" ");
 
-    let mut file_path_buf = Path::new(&file_path).to_path_buf();
+    let mut file_path_buf: PathBuf = Path::new(&file_path).to_path_buf();
     if file_path_buf.is_absolute() {
         return Ok(file_path_buf);
     }
     if !file_path.starts_with("./") {
-        let new_file_path = format!("./{file_path}");
+        let new_file_path: String = format!("./{file_path}");
         file_path_buf = Path::new(&new_file_path).to_path_buf();
     }
     file_path_buf = hashpath.join(&file_path_buf);
@@ -488,25 +488,20 @@ fn hash_hexpattern() -> Regex {
 // Why the separation? We may want to have a per-Hasher object mutex
 // and hash count if we spin up multiple. Future-proofing.
 fn increment_hashcount(total_files: usize) {
-    static S_MONITOR_MUTEX: Mutex<bool> = Mutex::new(false);
-    static S_ATOMIC_HASHCOUNT: AtomicUsize = AtomicUsize::new(0);
-    increment_hashcount_func(&S_ATOMIC_HASHCOUNT, &S_MONITOR_MUTEX, total_files);
+    static S_ATOMIC_HASHCOUNT: Mutex<AtomicUsize> = Mutex::new(AtomicUsize::new(0));
+    increment_hashcount_func(&S_ATOMIC_HASHCOUNT, total_files);
 }
 
-fn increment_hashcount_func(
-    _atomic_hashcount: &AtomicUsize,
-    _monitor_mutex: &Mutex<bool>,
-    total_files: usize,
-) {
-    let _guard = _monitor_mutex
+fn increment_hashcount_func(_atomic_hashcount: &Mutex<AtomicUsize>, total_files: usize) {
+    let _guard = _atomic_hashcount
         .lock()
         .expect("If a mutex lock fails, there is a design flaw. Rewrite code.");
     if total_files == 0 {
         warn!("[!] No files to hash");
         return;
     }
-    _atomic_hashcount.fetch_add(1, Ordering::SeqCst);
-    let curr_hashes: usize = _atomic_hashcount.load(Ordering::SeqCst);
+    (*_guard).fetch_add(1, Ordering::SeqCst);
+    let curr_hashes: usize = (*_guard).load(Ordering::SeqCst);
     let pct_complete: f64 = ((curr_hashes) as f64 / (total_files) as f64) * 100.0;
     let approx_five_pct: usize = total_files / 20;
     if curr_hashes % 500 == 0 || curr_hashes % approx_five_pct == 0 {

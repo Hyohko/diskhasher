@@ -74,7 +74,7 @@ fn main() -> Result<(), HasherError> {
     let pattern = args
         .pattern
         .clone()
-        .unwrap_or("NO_VALID_PATTERN".to_string());
+        .unwrap_or(String::from("NO_VALID_PATTERN"));
 
     let mut myhasher = Hasher::new(
         args.algorithm,
