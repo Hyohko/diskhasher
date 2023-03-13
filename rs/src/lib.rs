@@ -32,8 +32,8 @@ use {
     clap::ValueEnum,
     custom_error::custom_error,
     digest::DynDigest,
-    hex,
     regex::Regex,
+    std::cmp::Reverse,
     std::collections::HashMap,
     std::fmt::{self, Display, Formatter},
     std::fs,
@@ -228,21 +228,17 @@ impl Hasher {
             let mut hashpath = f.path().clone();
             hashpath.pop();
 
-            let file = File::open(f.path()).or_else(|err| {
-                return Err(FileError {
-                    why: format!("{err} : Hashfile cannot be opened"),
-                    path: f.path_string(),
-                });
+            let file = File::open(f.path()).map_err(|err| FileError {
+                why: format!("{err} : Hashfile cannot be opened"),
+                path: f.path_string(),
             })?;
 
             let reader = BufReader::new(file);
             let mut num_lines: i32 = 0;
             for line in reader.lines() {
-                let newline = line.or_else(|err| {
-                    return Err(FileError {
-                        why: format!("{err} : Line from file cannot be read"),
-                        path: f.path_string(),
-                    });
+                let newline = line.map_err(|err| FileError {
+                    why: format!("{err} : Line from file cannot be read"),
+                    path: f.path_string(),
                 })?;
 
                 let (hashval, canonical_path) = match split_hashfile_line(&newline, &hashpath) {
@@ -260,7 +256,7 @@ impl Hasher {
             }
         }
 
-        if self.hashmap.len() == 0 {
+        if self.hashmap.is_empty() {
             return Err(HashError {
                 why: String::from("No hashes read from hashfiles"),
             });
@@ -299,12 +295,12 @@ impl Hasher {
         (self.hashfiles, self.checkedfiles) = file_vec
             .into_iter()
             .partition(|f| path_matches_regex(&self.hash_regex, f.path()));
-        if self.hashfiles.len() == 0 {
+        if self.hashfiles.is_empty() {
             let reason = String::from("No hashfiles matched the hashfile pattern");
             if !force {
                 return Err(RegexError { why: reason });
             } else {
-                warn!("{reason}");
+                warn!("[-] {reason}");
             }
         }
         info!("[*] {} files in the queue", self.checkedfiles.len());
@@ -312,11 +308,10 @@ impl Hasher {
         if largest_first {
             info!("[*] Sorting files by size, largest first");
             self.checkedfiles
-                .sort_unstable_by(|a, b| a.size().cmp(&b.size()));
+                .sort_unstable_by_key(|a| Reverse(a.size()));
         } else {
             info!("[*] Sorting files by size, smallest first");
-            self.checkedfiles
-                .sort_unstable_by(|a, b| b.size().cmp(&a.size()));
+            self.checkedfiles.sort_unstable_by_key(|a| a.size());
         }
         Ok(())
     }
@@ -375,8 +370,8 @@ fn canonicalize_path(path: &String, filetype: FileType) -> Result<PathBuf, Hashe
 }
 
 fn canonicalize_split_filepath(
-    splitline: &Vec<&str>,
-    hashpath: &PathBuf,
+    splitline: &[&str],
+    hashpath: &Path,
 ) -> Result<PathBuf, HasherError> {
     let file_path = splitline[1..].join(" ");
 
@@ -478,11 +473,10 @@ fn hash_hexpattern() -> Regex {
     );
     // As this regex is initialized at process startup, panic instead
     // of returning an error
-    let expr = match Regex::new(&STR_REGEX) {
+    match Regex::new(STR_REGEX) {
         Ok(v) => v,
         Err(_e) => panic!("[!] Regular expression engine startup failure"),
-    };
-    expr
+    }
 }
 
 // Why the separation? We may want to have a per-Hasher object mutex
@@ -512,7 +506,7 @@ fn increment_hashcount_func(_atomic_hashcount: &Mutex<AtomicUsize>, total_files:
     }
 }
 
-fn path_matches_regex(hash_regex: &Regex, file_path: &PathBuf) -> bool {
+fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
     let str_path = match file_path.file_name() {
         Some(v) => v,
         None => {
@@ -588,7 +582,7 @@ fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
 
 fn split_hashfile_line(
     newline: &String,
-    hashpath: &PathBuf,
+    hashpath: &Path,
 ) -> Result<(String, PathBuf), HasherError> {
     let splitline: Vec<&str> = newline.split_whitespace().collect();
     if splitline.len() < 2 {
@@ -614,24 +608,19 @@ fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
                     });
                 }
             }
-            return Ok(());
+            Ok(())
         }
-        _ => {
-            return Err(ParseError {
-                why: format!("Bad hexstring length: {hexlen}"),
-            });
-        }
+        _ => Err(ParseError {
+            why: format!("Bad hexstring length: {hexlen}"),
+        }),
     }
 }
 
 fn write_to_log(msg: &String, loghandle: &Option<Arc<Mutex<File>>>) {
-    match loghandle {
-        Some(handle) => {
-            let mut guarded_filehandle = handle.lock().unwrap();
-            (*guarded_filehandle).write(msg.as_bytes()).ok();
-            (*guarded_filehandle).write(b"\n").ok();
-        }
-        None => return,
+    if let Some(handle) = loghandle {
+        let mut guarded_filehandle = handle.lock().expect("Mutex unlock failure - Panic!");
+        (*guarded_filehandle).write(msg.as_bytes()).ok();
+        (*guarded_filehandle).write(b"\n").ok();
     }
 }
 ///////////////////////////////////////////////////////////////////////////////

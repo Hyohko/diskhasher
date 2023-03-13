@@ -66,7 +66,7 @@ struct Arguments {
 }
 
 fn main() -> Result<(), HasherError> {
-    let mut _logbuilder = pretty_env_logger::formatted_timed_builder()
+    pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Info)
         .init();
 
@@ -89,14 +89,10 @@ fn main() -> Result<(), HasherError> {
             return Err(err);
         }
     };*/
-    myhasher.run(args.force, args.verbose, args.largest)?;
-    /*{
-        Ok(v) => v,
-        Err(err) => {
-            error!("[!] Hasher runtime failure => {err}");
-            return Err(err);
-        }
-    };*/
+    if let Err(err) = myhasher.run(args.force, args.verbose, args.largest) {
+        error!("[!] Hasher runtime failure => {err}");
+        return Err(err);
+    };
     info!("[+] Done");
     Ok(())
 }
