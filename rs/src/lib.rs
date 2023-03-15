@@ -33,7 +33,6 @@ use {
     custom_error::custom_error,
     digest::DynDigest,
     indicatif::{MultiProgress, ProgressBar, ProgressStyle},
-    //rayon::iter::{IntoParallelRefIterator, ParallelIterator},
     regex::Regex,
     std::cmp::Reverse,
     std::collections::HashMap,
