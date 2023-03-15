@@ -139,7 +139,7 @@ pub struct Hasher {
     checkedfiles: Vec<FileData>,
     hashmap: HashMap<PathBuf, String>,
     loghandle: Option<Arc<Mutex<File>>>,
-    multiprogress: Arc<MultiProgress>,
+    multiprogress: MultiProgress, // is an Arc type
 }
 
 impl Hasher {
@@ -149,6 +149,7 @@ impl Hasher {
         root_dir: String,
         hashfile_pattern: String,
         logfile: Option<String>,
+        num_threads: Option<usize>,
     ) -> Result<Self, HasherError> {
         let hash_regex = match Regex::new(&hashfile_pattern) {
             Ok(v) => v,
@@ -159,7 +160,8 @@ impl Hasher {
             }
         };
         let root = canonicalize_path(&root_dir, FileType::IsDir)?;
-        let num_threads = match thread::available_parallelism() {
+
+        let mut avail_threads = match thread::available_parallelism() {
             Ok(v) => v.get(),
             Err(err) => {
                 return Err(ThreadingError {
@@ -167,6 +169,15 @@ impl Hasher {
                 });
             }
         };
+
+        if let Some(total_threads) = num_threads {
+            if total_threads > avail_threads {
+                warn!("[!] Only {avail_threads} threads available");
+            } else {
+                avail_threads = total_threads
+            }
+            info!("[+] Allocating {avail_threads} worker threads in the thread pool");
+        }
 
         let loghandle = match logfile {
             Some(v) => {
@@ -177,10 +188,10 @@ impl Hasher {
             None => None,
         };
 
-        let multiprogress = Arc::new(MultiProgress::new());
+        let multiprogress = MultiProgress::new();
 
         Ok(Hasher {
-            pool: ThreadPool::new(num_threads),
+            pool: ThreadPool::new(avail_threads),
             alg,
             root,
             hash_regex,
@@ -439,7 +450,7 @@ fn hash_file(
     path: &PathBuf,
     file_size: u64,
     alg: HashAlg,
-    multiprogress: &Arc<MultiProgress>,
+    multiprogress: &MultiProgress,
 ) -> Result<String, HasherError> {
     let mut hasher = select_hasher(alg);
     let display_bar: bool = file_size > SIZE_256MB as u64;
@@ -542,11 +553,11 @@ fn perform_hash_threadfunc(
     force: bool,
     verbose: bool,
     loghandle: Option<Arc<Mutex<File>>>,
-    multiprogress: Arc<MultiProgress>,
-    total_progress: ProgressBar, // is an Arc
+    multiprogress: MultiProgress, // is already an Arc
+    total_progress: ProgressBar,  // is already an Arc
 ) -> Result<(), HasherError> {
-    let actual_hash = hash_file(fdata.path(), fdata.size(), alg, &multiprogress)?;
     total_progress.inc(1);
+    let actual_hash = hash_file(fdata.path(), fdata.size(), alg, &multiprogress)?;
     if force {
         let result = format!(
             "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}\n",
@@ -557,8 +568,7 @@ fn perform_hash_threadfunc(
         write_to_log(&result, &loghandle);
     } else {
         // Compare
-        let success: bool = fdata.hash() == &actual_hash;
-        if success {
+        if fdata.hash() == &actual_hash {
             if verbose {
                 let result = format!(
                     "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}\n",

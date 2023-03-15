@@ -63,6 +63,9 @@ struct Arguments {
     /// [Optional] name of a file to which failed hashes will be logged
     #[clap(short, long)]
     pub logfile: Option<String>,
+    /// [Optional] number of jobs (will be capped by number of cores)
+    #[clap(short, long)]
+    pub jobs: Option<usize>,
 }
 
 fn main() -> Result<(), HasherError> {
@@ -81,6 +84,7 @@ fn main() -> Result<(), HasherError> {
         args.directory.clone(),
         pattern,
         args.logfile,
+        args.jobs,
     )?;
     /*{
         Ok(v) => v,
