@@ -32,6 +32,8 @@ use {
     clap::ValueEnum,
     custom_error::custom_error,
     digest::DynDigest,
+    indicatif::{MultiProgress, ProgressBar, ProgressStyle},
+    //rayon::iter::{IntoParallelRefIterator, ParallelIterator},
     regex::Regex,
     std::cmp::Reverse,
     std::collections::HashMap,
@@ -138,6 +140,7 @@ pub struct Hasher {
     checkedfiles: Vec<FileData>,
     hashmap: HashMap<PathBuf, String>,
     loghandle: Option<Arc<Mutex<File>>>,
+    multiprogress: Arc<MultiProgress>,
 }
 
 impl Hasher {
@@ -175,6 +178,8 @@ impl Hasher {
             None => None,
         };
 
+        let multiprogress = Arc::new(MultiProgress::new());
+
         Ok(Hasher {
             pool: ThreadPool::new(num_threads),
             alg,
@@ -184,6 +189,7 @@ impl Hasher {
             checkedfiles: vec![],
             hashmap: [].into(),
             loghandle,
+            multiprogress,
         })
     }
 
@@ -204,10 +210,8 @@ impl Hasher {
                 }
             }
         };
-        let num_files = self.checkedfiles.len();
         self.start_hash_threads(force, verbose)?;
         self.join()?;
-        self.hashcount_monitor(num_files);
         Ok(())
     }
 
@@ -331,14 +335,26 @@ impl Hasher {
                 None => {
                     if !force {
                         warn!("[!] {:?} => No hash found", ck.path());
+                        self.hashcount_monitor(num_files);
                     }
-                    self.hashcount_monitor(num_files);
                 }
             };
             let alg = self.alg;
             let loghandle = self.loghandle.clone();
+            // after this point, no more stdout/stderr prints
+            let multiprogress = self.multiprogress.clone();
+
             self.pool.execute(move || {
-                perform_hash_threadfunc(ck, alg, force, verbose, num_files, loghandle).ok();
+                perform_hash_threadfunc(
+                    ck,
+                    alg,
+                    force,
+                    verbose,
+                    num_files,
+                    loghandle,
+                    multiprogress,
+                )
+                .ok();
             });
         } // end while
         Ok(num_files)
@@ -418,10 +434,15 @@ macro_rules! display_gb {
     };
 }
 
-fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
+fn hash_file(
+    path: &PathBuf,
+    _file_size: u64,
+    alg: HashAlg,
+    multiprogress: &Arc<MultiProgress>,
+) -> Result<String, HasherError> {
     let mut hasher = select_hasher(alg);
-    let mut num_blocks: i32 = 0;
-    let mut reads: i32 = 0;
+    let total_blocks = _file_size / SIZE_2MB as u64;
+    let display_bar: bool = total_blocks > READS_PER_256MB as u64;
     const O_DIRECT: i32 = 0x4000; // Linux
 
     #[cfg(not(target_os = "linux"))]
@@ -429,6 +450,20 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
 
     #[cfg(target_os = "linux")]
     let mut buffer: Box<AlignedHashBuffer> = Box::new(AlignedHashBuffer([0u8; SIZE_2MB]));
+
+    let style: ProgressStyle = ProgressStyle::with_template(
+        "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
+    )
+    .unwrap()
+    .progress_chars("##-");
+    let bar = multiprogress.add(ProgressBar::new(total_blocks).with_style(style));
+    // this is dumb, but the only way to get a valid reference
+    if display_bar {
+        bar.set_message(path.display().to_string());
+    } else {
+        // lock the multiprogress and remove the new bar if the file is too small
+        multiprogress.remove(&bar);
+    }
 
     let mut file = OpenOptions::new()
         .read(true)
@@ -451,7 +486,13 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
         if read_count < SIZE_2MB {
             break;
         }
-        display_gb!(reads, num_blocks, path);
+        if display_bar {
+            bar.inc(1);
+        }
+    }
+    if display_bar {
+        bar.finish_and_clear();
+        multiprogress.remove(&bar);
     }
 
     Ok(hex::encode(hasher.finalize()))
@@ -483,15 +524,16 @@ fn hash_hexpattern() -> Regex {
 // and hash count if we spin up multiple. Future-proofing.
 fn increment_hashcount(total_files: usize) {
     static S_ATOMIC_HASHCOUNT: Mutex<AtomicUsize> = Mutex::new(AtomicUsize::new(0));
-    increment_hashcount_func(&S_ATOMIC_HASHCOUNT, total_files);
+    //increment_hashcount_func(&S_ATOMIC_HASHCOUNT, total_files);
 }
 
-fn increment_hashcount_func(_atomic_hashcount: &Mutex<AtomicUsize>, total_files: usize) {
+// Possibly deprecated by the progress bar
+fn _increment_hashcount_func(_atomic_hashcount: &Mutex<AtomicUsize>, total_files: usize) {
     let _guard = _atomic_hashcount
         .lock()
         .expect("If a mutex lock fails, there is a design flaw. Rewrite code.");
     if total_files == 0 {
-        warn!("[!] No files to hash");
+        //warn!("[!] No files to hash");
         return;
     }
     (*_guard).fetch_add(1, Ordering::SeqCst);
@@ -531,15 +573,16 @@ fn perform_hash_threadfunc(
     verbose: bool,
     num_files: usize,
     loghandle: Option<Arc<Mutex<File>>>,
+    multiprogress: Arc<MultiProgress>,
 ) -> Result<(), HasherError> {
-    let actual_hash = hash_file(fdata.path(), alg)?;
+    let actual_hash = hash_file(fdata.path(), fdata.size(), alg, &multiprogress)?;
     if force {
         let result = format!(
-            "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}",
+            "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}\n",
             fdata.path(),
             actual_hash
         );
-        info!("{result}");
+        multiprogress.println(&result).ok();
         write_to_log(&result, &loghandle);
     } else {
         // Compare
@@ -547,21 +590,21 @@ fn perform_hash_threadfunc(
         if success {
             if verbose {
                 let result = format!(
-                    "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}",
+                    "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}\n",
                     fdata.path(),
                     actual_hash
                 );
-                info!("{result}");
+                multiprogress.println(&result).ok();
                 write_to_log(&result, &loghandle);
             }
         } else {
             let result = format!(
-                "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",
+                "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}\n",
                 fdata.path(),
                 fdata.hash(),
                 actual_hash
             );
-            error!("{result}");
+            multiprogress.println(&result).ok();
             write_to_log(&result, &loghandle);
         }
     }
@@ -620,7 +663,6 @@ fn write_to_log(msg: &String, loghandle: &Option<Arc<Mutex<File>>>) {
     if let Some(handle) = loghandle {
         let mut guarded_filehandle = handle.lock().expect("Mutex unlock failure - Panic!");
         (*guarded_filehandle).write(msg.as_bytes()).ok();
-        (*guarded_filehandle).write(b"\n").ok();
     }
 }
 ///////////////////////////////////////////////////////////////////////////////

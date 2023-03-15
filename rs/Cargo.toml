@@ -52,3 +52,5 @@ threadpool = "^1.8"
 walkdir = "^2"
 custom_error = "^1.9"
 lazy_static = "^1.4"
+#rayon = "*""
+indicatif = "*" #{version = "*", features = ["rayon"]}
