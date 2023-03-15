@@ -32,6 +32,7 @@ use {
     clap::ValueEnum,
     custom_error::custom_error,
     digest::DynDigest,
+    indicatif::{MultiProgress, ProgressBar, ProgressStyle},
     regex::Regex,
     std::cmp::Reverse,
     std::collections::HashMap,
@@ -41,7 +42,6 @@ use {
     std::io::{BufRead, BufReader, Read, Write},
     std::mem,
     std::path::{Path, PathBuf},
-    std::sync::atomic::{AtomicUsize, Ordering},
     std::sync::{Arc, Mutex},
     std::thread,
     threadpool::ThreadPool,
@@ -138,6 +138,7 @@ pub struct Hasher {
     checkedfiles: Vec<FileData>,
     hashmap: HashMap<PathBuf, String>,
     loghandle: Option<Arc<Mutex<File>>>,
+    multiprogress: MultiProgress, // is an Arc type
 }
 
 impl Hasher {
@@ -147,6 +148,7 @@ impl Hasher {
         root_dir: String,
         hashfile_pattern: String,
         logfile: Option<String>,
+        num_threads: Option<usize>,
     ) -> Result<Self, HasherError> {
         let hash_regex = match Regex::new(&hashfile_pattern) {
             Ok(v) => v,
@@ -157,7 +159,8 @@ impl Hasher {
             }
         };
         let root = canonicalize_path(&root_dir, FileType::IsDir)?;
-        let num_threads = match thread::available_parallelism() {
+
+        let mut avail_threads = match thread::available_parallelism() {
             Ok(v) => v.get(),
             Err(err) => {
                 return Err(ThreadingError {
@@ -165,6 +168,15 @@ impl Hasher {
                 });
             }
         };
+
+        if let Some(total_threads) = num_threads {
+            if total_threads > avail_threads {
+                warn!("[!] Only {avail_threads} threads available");
+            } else {
+                avail_threads = total_threads
+            }
+            info!("[+] Allocating {avail_threads} worker threads in the thread pool");
+        }
 
         let loghandle = match logfile {
             Some(v) => {
@@ -175,8 +187,10 @@ impl Hasher {
             None => None,
         };
 
+        let multiprogress = MultiProgress::new();
+
         Ok(Hasher {
-            pool: ThreadPool::new(num_threads),
+            pool: ThreadPool::new(avail_threads),
             alg,
             root,
             hash_regex,
@@ -184,6 +198,7 @@ impl Hasher {
             checkedfiles: vec![],
             hashmap: [].into(),
             loghandle,
+            multiprogress,
         })
     }
 
@@ -204,16 +219,9 @@ impl Hasher {
                 }
             }
         };
-        let num_files = self.checkedfiles.len();
         self.start_hash_threads(force, verbose)?;
         self.join()?;
-        self.hashcount_monitor(num_files);
         Ok(())
-    }
-
-    //  Private Functions
-    fn hashcount_monitor(&self, total_files: usize) {
-        increment_hashcount(total_files);
     }
 
     fn join(&self) -> Result<(), HasherError> {
@@ -323,6 +331,14 @@ impl Hasher {
         );
 
         let num_files = self.checkedfiles.len();
+        let style: ProgressStyle = ProgressStyle::with_template(
+            "[{elapsed_precise}] {bar:40.red/magenta} ({percent:2}%) {pos:>7.green}/{len:7.green} * Total File Progress *",
+        )
+        .unwrap()
+        .progress_chars("##-");
+        let total_progress_bar = self
+            .multiprogress
+            .add(ProgressBar::new(num_files as u64).with_style(style));
         while let Some(mut ck) = self.checkedfiles.pop() {
             match self.hashmap.remove(ck.path()) {
                 Some(mut v) => {
@@ -332,13 +348,24 @@ impl Hasher {
                     if !force {
                         warn!("[!] {:?} => No hash found", ck.path());
                     }
-                    self.hashcount_monitor(num_files);
                 }
             };
             let alg = self.alg;
             let loghandle = self.loghandle.clone();
+            // after this point, no more stdout/stderr prints
+            let multiprogress = self.multiprogress.clone();
+            let total_progress_bar = total_progress_bar.clone();
             self.pool.execute(move || {
-                perform_hash_threadfunc(ck, alg, force, verbose, num_files, loghandle).ok();
+                perform_hash_threadfunc(
+                    ck,
+                    alg,
+                    force,
+                    verbose,
+                    loghandle,
+                    multiprogress,
+                    total_progress_bar,
+                )
+                .ok();
             });
         } // end while
         Ok(num_files)
@@ -397,7 +424,7 @@ struct AlignedHashBuffer([u8; SIZE_2MB]);
 use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
 
 const SIZE_2MB: usize = 1024 * 1024 * 2; // 2 MB
-const READS_PER_256MB: i32 = 128;
+const SIZE_256MB: usize = 1024 * 1024 * 256;
 
 // Macroize this instead of a function b/c we don't want the
 // overhead of a function call
@@ -418,10 +445,14 @@ macro_rules! display_gb {
     };
 }
 
-fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
+fn hash_file(
+    path: &PathBuf,
+    file_size: u64,
+    alg: HashAlg,
+    multiprogress: &MultiProgress,
+) -> Result<String, HasherError> {
     let mut hasher = select_hasher(alg);
-    let mut num_blocks: i32 = 0;
-    let mut reads: i32 = 0;
+    let display_bar: bool = file_size > SIZE_256MB as u64;
     const O_DIRECT: i32 = 0x4000; // Linux
 
     #[cfg(not(target_os = "linux"))]
@@ -429,6 +460,19 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
 
     #[cfg(target_os = "linux")]
     let mut buffer: Box<AlignedHashBuffer> = Box::new(AlignedHashBuffer([0u8; SIZE_2MB]));
+
+    let style: ProgressStyle =
+        ProgressStyle::with_template("[{elapsed_precise}] {bar:40.cyan/blue} ({percent:2}%) {msg}")
+            .unwrap()
+            .progress_chars("##-");
+    let bar = multiprogress.add(ProgressBar::new(file_size).with_style(style));
+    // this is dumb, but the only way to get a valid reference - have to add then remove the progress bar
+    if display_bar {
+        bar.set_message(format!("{:?}", path.file_name().unwrap()));
+    } else {
+        // lock the multiprogress and remove the new bar if the file is too small
+        multiprogress.remove(&bar);
+    }
 
     let mut file = OpenOptions::new()
         .read(true)
@@ -447,11 +491,16 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
             read_count = file.read(&mut buffer[..SIZE_2MB])?;
             hasher.update(&buffer[..read_count]);
         }
-
+        if display_bar {
+            bar.inc(read_count as u64);
+        }
         if read_count < SIZE_2MB {
             break;
         }
-        display_gb!(reads, num_blocks, path);
+    }
+    if display_bar {
+        bar.finish_and_clear();
+        multiprogress.remove(&bar);
     }
 
     Ok(hex::encode(hasher.finalize()))
@@ -479,33 +528,6 @@ fn hash_hexpattern() -> Regex {
     }
 }
 
-// Why the separation? We may want to have a per-Hasher object mutex
-// and hash count if we spin up multiple. Future-proofing.
-fn increment_hashcount(total_files: usize) {
-    static S_ATOMIC_HASHCOUNT: Mutex<AtomicUsize> = Mutex::new(AtomicUsize::new(0));
-    increment_hashcount_func(&S_ATOMIC_HASHCOUNT, total_files);
-}
-
-fn increment_hashcount_func(_atomic_hashcount: &Mutex<AtomicUsize>, total_files: usize) {
-    let _guard = _atomic_hashcount
-        .lock()
-        .expect("If a mutex lock fails, there is a design flaw. Rewrite code.");
-    if total_files == 0 {
-        warn!("[!] No files to hash");
-        return;
-    }
-    (*_guard).fetch_add(1, Ordering::SeqCst);
-    let curr_hashes: usize = (*_guard).load(Ordering::SeqCst);
-    let pct_complete: f64 = ((curr_hashes) as f64 / (total_files) as f64) * 100.0;
-    let approx_five_pct: usize = total_files / 20;
-    if curr_hashes % 500 == 0 || curr_hashes % approx_five_pct == 0 {
-        info!("[*] ({pct_complete:.2}%) {curr_hashes} hashes complete");
-    }
-    if curr_hashes == total_files {
-        info!("[*] ({pct_complete:.2}%) {curr_hashes} hashes - Hashing Complete");
-    }
-}
-
 fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
     let str_path = match file_path.file_name() {
         Some(v) => v,
@@ -529,43 +551,43 @@ fn perform_hash_threadfunc(
     alg: HashAlg,
     force: bool,
     verbose: bool,
-    num_files: usize,
     loghandle: Option<Arc<Mutex<File>>>,
+    multiprogress: MultiProgress, // is already an Arc
+    total_progress: ProgressBar,  // is already an Arc
 ) -> Result<(), HasherError> {
-    let actual_hash = hash_file(fdata.path(), alg)?;
+    total_progress.inc(1);
+    let actual_hash = hash_file(fdata.path(), fdata.size(), alg, &multiprogress)?;
     if force {
         let result = format!(
-            "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}",
+            "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}\n",
             fdata.path(),
             actual_hash
         );
-        info!("{result}");
+        multiprogress.println(&result).ok();
         write_to_log(&result, &loghandle);
     } else {
         // Compare
-        let success: bool = fdata.hash() == &actual_hash;
-        if success {
+        if fdata.hash() == &actual_hash {
             if verbose {
                 let result = format!(
-                    "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}",
+                    "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}\n",
                     fdata.path(),
                     actual_hash
                 );
-                info!("{result}");
+                multiprogress.println(&result).ok();
                 write_to_log(&result, &loghandle);
             }
         } else {
             let result = format!(
-                "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",
+                "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}\n",
                 fdata.path(),
                 fdata.hash(),
                 actual_hash
             );
-            error!("{result}");
+            multiprogress.println(&result).ok();
             write_to_log(&result, &loghandle);
         }
     }
-    increment_hashcount(num_files);
     Ok(())
 }
 
@@ -620,7 +642,6 @@ fn write_to_log(msg: &String, loghandle: &Option<Arc<Mutex<File>>>) {
     if let Some(handle) = loghandle {
         let mut guarded_filehandle = handle.lock().expect("Mutex unlock failure - Panic!");
         (*guarded_filehandle).write(msg.as_bytes()).ok();
-        (*guarded_filehandle).write(b"\n").ok();
     }
 }
 ///////////////////////////////////////////////////////////////////////////////
