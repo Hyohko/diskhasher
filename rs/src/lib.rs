@@ -425,26 +425,6 @@ use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
 
 const SIZE_2MB: usize = 1024 * 1024 * 2; // 2 MB
 const SIZE_256MB: usize = 1024 * 1024 * 256;
-
-// Macroize this instead of a function b/c we don't want the
-// overhead of a function call
-#[macro_export]
-macro_rules! display_gb {
-    ( $( $rd:expr, $blk:expr, $pth:expr ),* ) => {
-        {
-            $($rd += 1;
-            if $rd % READS_PER_256MB == 0 {
-                $blk += 1;
-                info!(
-                    "{:.2} GB processed for {:?}",
-                    ($blk) as f32 / 4.0,
-                    $pth.file_name().unwrap()
-                );
-            })*
-        }
-    };
-}
-
 fn hash_file(
     path: &PathBuf,
     file_size: u64,
