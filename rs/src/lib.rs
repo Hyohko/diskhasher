@@ -445,7 +445,7 @@ struct AlignedHashBuffer([u8; SIZE_2MB]);
 use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
 
 const SIZE_2MB: usize = 1024 * 1024 * 2; // 2 MB
-const SIZE_256MB: usize = 1024 * 1024 * 256;
+const SIZE_128MB: usize = 1024 * 1024 * 128;
 fn hash_file(
     path: &PathBuf,
     file_size: u64,
@@ -453,7 +453,7 @@ fn hash_file(
     multiprogress: &MultiProgress,
 ) -> Result<String, HasherError> {
     let mut hasher = select_hasher(alg);
-    let display_bar: bool = file_size > SIZE_256MB as u64;
+    let display_bar: bool = file_size > SIZE_128MB as u64;
     const O_DIRECT: i32 = 0x4000; // Linux
 
     #[cfg(not(target_os = "linux"))]
