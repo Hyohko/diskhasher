@@ -32,7 +32,7 @@ use {
     clap::ValueEnum,
     custom_error::custom_error,
     digest::DynDigest,
-    indicatif::{MultiProgress, ProgressBar, ProgressStyle},
+    indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle},
     regex::Regex,
     std::cmp::Reverse,
     std::collections::HashMap,
@@ -44,6 +44,7 @@ use {
     std::path::{Path, PathBuf},
     std::sync::{Arc, Mutex},
     std::thread,
+    std::time::Duration,
     threadpool::ThreadPool,
     walkdir::WalkDir,
 };
@@ -176,6 +177,13 @@ impl Hasher {
                 avail_threads = total_threads
             }
             info!("[+] Allocating {avail_threads} worker threads in the thread pool");
+        } else {
+            // cap total running threads at the num of cores or 12 threads (which is plenty),
+            // whatever is smaller. Much larger than this and it screws
+            // up the progress bar rendering, though we still let the user shoot their
+            // own feet in the if let above.
+            avail_threads = std::cmp::min(avail_threads, 12);
+            info!("[+] Defaulting to {avail_threads} worker threads, use '--jobs' arg to change");
         }
 
         let loghandle = match logfile {
@@ -232,6 +240,8 @@ impl Hasher {
     fn load_hashes(&mut self) -> Result<(), HasherError> {
         self.hashmap.reserve(self.checkedfiles.len());
 
+        let spinner = self.create_spinner(String::from("[+] Parsing hashes from hashfiles"));
+        let mut total_lines: i32 = 0;
         for f in &self.hashfiles {
             let mut hashpath = f.path().clone();
             hashpath.pop();
@@ -242,7 +252,6 @@ impl Hasher {
             })?;
 
             let reader = BufReader::new(file);
-            let mut num_lines: i32 = 0;
             for line in reader.lines() {
                 let newline = line.map_err(|err| FileError {
                     why: format!("{err} : Line from file cannot be read"),
@@ -257,24 +266,40 @@ impl Hasher {
                     }
                 };
                 self.hashmap.insert(canonical_path, hashval);
-                num_lines += 1;
-                if num_lines % 500 == 0 {
-                    info!("[*] {num_lines} hashes read from {}", f.path_string());
-                }
+                total_lines += 1;
+                spinner.inc(1);
             }
         }
+        self.multiprogress.remove(&spinner);
 
         if self.hashmap.is_empty() {
             return Err(HashError {
                 why: String::from("No hashes read from hashfiles"),
             });
         }
+        info!("[*] {total_lines} hashes read from all hashfiles");
         Ok(())
+    }
+
+    fn create_spinner(&self, msg: String) -> ProgressBar {
+        let spinner_style =
+            ProgressStyle::with_template("[{spinner:.cyan.dim.bold}] (# {pos:.green}) {wide_msg}")
+                .unwrap()
+                .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
+        let spinner = self.multiprogress.add(
+            ProgressBar::new_spinner()
+                .with_style(spinner_style)
+                .with_finish(ProgressFinish::AndLeave)
+                .with_message(msg),
+        );
+        spinner.enable_steady_tick(Duration::from_millis(120));
+        spinner
     }
 
     fn recursive_dir(&mut self, force: bool, largest_first: bool) -> Result<(), HasherError> {
         let mut file_vec = Vec::<FileData>::new();
-        let mut files_added: i32 = 0;
+
+        let spinner = self.create_spinner(format!("[+] Recursing through {:?}", self.root));
         for entry in WalkDir::new(&self.root)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -288,15 +313,10 @@ impl Hasher {
                     continue;
                 } // No error for now, keep processing
             };
-            //if size == 0 {
-            //    warn!("[!] File {} is empty, skipping", path.display())
-            //}
             file_vec.push(FileData::new(size, path));
-            files_added += 1;
-            if files_added % 500 == 0 {
-                info!("[*] Added {files_added} files to be hashed");
-            }
+            spinner.inc(1);
         }
+        self.multiprogress.remove(&spinner);
 
         // Split the file vec into hash files and non-hashfiles
         info!("[+] Identifying hashfiles");
@@ -313,13 +333,14 @@ impl Hasher {
         }
         info!("[*] {} files in the queue", self.checkedfiles.len());
 
+        // actual testing indicates that the Reverse sort order puts smallest first, for some reason...
         if largest_first {
             info!("[*] Sorting files by size, largest first");
-            self.checkedfiles
-                .sort_unstable_by_key(|a| Reverse(a.size()));
+            self.checkedfiles.sort_unstable_by_key(|a| a.size());
         } else {
             info!("[*] Sorting files by size, smallest first");
-            self.checkedfiles.sort_unstable_by_key(|a| a.size());
+            self.checkedfiles
+                .sort_unstable_by_key(|a| Reverse(a.size()));
         }
         Ok(())
     }
