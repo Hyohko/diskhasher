@@ -139,7 +139,7 @@ pub struct Hasher {
     checkedfiles: Vec<FileData>,
     hashmap: HashMap<PathBuf, String>,
     loghandle: Option<Arc<Mutex<File>>>,
-    multiprogress: MultiProgress, // is an Arc type
+    mp: MultiProgress, // is an Arc type
 }
 
 impl Hasher {
@@ -195,7 +195,7 @@ impl Hasher {
             None => None,
         };
 
-        let multiprogress = MultiProgress::new();
+        let mp = MultiProgress::new();
 
         Ok(Hasher {
             pool: ThreadPool::new(avail_threads),
@@ -206,7 +206,7 @@ impl Hasher {
             checkedfiles: vec![],
             hashmap: [].into(),
             loghandle,
-            multiprogress,
+            mp,
         })
     }
 
@@ -270,7 +270,7 @@ impl Hasher {
                 spinner.inc(1);
             }
         }
-        self.multiprogress.remove(&spinner);
+        self.mp.remove(&spinner);
 
         if self.hashmap.is_empty() {
             return Err(HashError {
@@ -286,7 +286,7 @@ impl Hasher {
             ProgressStyle::with_template("[{spinner:.cyan.dim.bold}] (# {pos:.green}) {wide_msg}")
                 .unwrap()
                 .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
-        let spinner = self.multiprogress.add(
+        let spinner = self.mp.add(
             ProgressBar::new_spinner()
                 .with_style(spinner_style)
                 .with_finish(ProgressFinish::AndLeave)
@@ -316,7 +316,7 @@ impl Hasher {
             file_vec.push(FileData::new(size, path));
             spinner.inc(1);
         }
-        self.multiprogress.remove(&spinner);
+        self.mp.remove(&spinner);
 
         // Split the file vec into hash files and non-hashfiles
         info!("[+] Identifying hashfiles");
@@ -358,7 +358,7 @@ impl Hasher {
         .unwrap()
         .progress_chars("##-");
         let total_progress_bar = self
-            .multiprogress
+            .mp
             .add(ProgressBar::new(num_files as u64).with_style(style));
         while let Some(mut ck) = self.checkedfiles.pop() {
             match self.hashmap.remove(ck.path()) {
@@ -374,19 +374,11 @@ impl Hasher {
             let alg = self.alg;
             let loghandle = self.loghandle.clone();
             // after this point, no more stdout/stderr prints
-            let multiprogress = self.multiprogress.clone();
+            let mp = self.mp.clone();
             let total_progress_bar = total_progress_bar.clone();
             self.pool.execute(move || {
-                perform_hash_threadfunc(
-                    ck,
-                    alg,
-                    force,
-                    verbose,
-                    loghandle,
-                    multiprogress,
-                    total_progress_bar,
-                )
-                .ok();
+                perform_hash_threadfunc(ck, alg, force, verbose, loghandle, mp, total_progress_bar)
+                    .ok();
             });
         } // end while
         Ok(num_files)
@@ -450,7 +442,7 @@ fn hash_file(
     path: &PathBuf,
     file_size: u64,
     alg: HashAlg,
-    multiprogress: &MultiProgress,
+    mp: &MultiProgress,
 ) -> Result<String, HasherError> {
     let mut hasher = select_hasher(alg);
     let display_bar: bool = file_size > SIZE_128MB as u64;
@@ -466,13 +458,13 @@ fn hash_file(
         ProgressStyle::with_template("[{elapsed_precise}] {bar:40.cyan/blue} ({percent:2}%) {msg}")
             .unwrap()
             .progress_chars("##-");
-    let bar = multiprogress.add(ProgressBar::new(file_size).with_style(style));
+    let bar = mp.add(ProgressBar::new(file_size).with_style(style));
     // this is dumb, but the only way to get a valid reference - have to add then remove the progress bar
     if display_bar {
         bar.set_message(format!("{:?}", path.file_name().unwrap()));
     } else {
         // lock the multiprogress and remove the new bar if the file is too small
-        multiprogress.remove(&bar);
+        mp.remove(&bar);
     }
 
     let mut file = OpenOptions::new()
@@ -501,7 +493,7 @@ fn hash_file(
     }
     if display_bar {
         bar.finish_and_clear();
-        multiprogress.remove(&bar);
+        mp.remove(&bar);
     }
 
     Ok(hex::encode(hasher.finalize()))
@@ -553,18 +545,18 @@ fn perform_hash_threadfunc(
     force: bool,
     verbose: bool,
     loghandle: Option<Arc<Mutex<File>>>,
-    multiprogress: MultiProgress, // is already an Arc
-    total_progress: ProgressBar,  // is already an Arc
+    mp: MultiProgress,           // is already an Arc
+    total_progress: ProgressBar, // is already an Arc
 ) -> Result<(), HasherError> {
     total_progress.inc(1);
-    let actual_hash = hash_file(fdata.path(), fdata.size(), alg, &multiprogress)?;
+    let actual_hash = hash_file(fdata.path(), fdata.size(), alg, &mp)?;
     if force {
         let result = format!(
             "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}\n",
             fdata.path(),
             actual_hash
         );
-        multiprogress.println(&result).ok();
+        mp.println(&result).ok();
         write_to_log(&result, &loghandle);
     } else {
         // Compare
@@ -575,7 +567,7 @@ fn perform_hash_threadfunc(
                     fdata.path(),
                     actual_hash
                 );
-                multiprogress.println(&result).ok();
+                mp.println(&result).ok();
                 write_to_log(&result, &loghandle);
             }
         } else {
@@ -585,7 +577,7 @@ fn perform_hash_threadfunc(
                 fdata.hash(),
                 actual_hash
             );
-            multiprogress.println(&result).ok();
+            mp.println(&result).ok();
             write_to_log(&result, &loghandle);
         }
     }
