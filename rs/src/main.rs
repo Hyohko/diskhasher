@@ -58,7 +58,7 @@ struct Arguments {
     #[clap(short, long, action)]
     pub verbose: bool,
     /// Hash largest files first instead of smallest files
-    #[clap(short, long, action)]
+    #[clap(long, action)]
     pub largest: bool,
     /// [Optional] name of a file to which failed hashes will be logged
     #[clap(short, long)]
