@@ -129,7 +129,7 @@ impl From<std::io::Error> for HasherError {
 }
 
 use crate::HasherError::*;
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Hasher {
     pool: ThreadPool,
     alg: HashAlg,
@@ -151,24 +151,17 @@ impl Hasher {
         logfile: Option<String>,
         num_threads: Option<usize>,
     ) -> Result<Self, HasherError> {
-        let hash_regex = match Regex::new(&hashfile_pattern) {
-            Ok(v) => v,
-            Err(err) => {
-                return Err(RegexError {
-                    why: format!("'{hashfile_pattern}' returns error {err}"),
-                })
-            }
-        };
+        let hash_regex = Regex::new(&hashfile_pattern).map_err(|err| RegexError {
+            why: format!("'{hashfile_pattern}' returns error {err}"),
+        })?;
+
         let root = canonicalize_path(&root_dir, FileType::IsDir)?;
 
-        let mut avail_threads = match thread::available_parallelism() {
-            Ok(v) => v.get(),
-            Err(err) => {
-                return Err(ThreadingError {
-                    why: format!("{err}: Couldn't get number of available threads"),
-                });
-            }
-        };
+        let mut avail_threads = thread::available_parallelism()
+            .map_err(|err| ThreadingError {
+                why: format!("{err}: Couldn't get number of available threads"),
+            })?
+            .get();
 
         if let Some(total_threads) = num_threads {
             if total_threads > avail_threads {
@@ -273,19 +266,20 @@ impl Hasher {
         self.mp.remove(&spinner);
 
         if self.hashmap.is_empty() {
-            return Err(HashError {
+            Err(HashError {
                 why: String::from("No hashes read from hashfiles"),
-            });
+            })
+        } else {
+            info!("[*] {total_lines} hashes read from all hashfiles");
+            Ok(())
         }
-        info!("[*] {total_lines} hashes read from all hashfiles");
-        Ok(())
     }
 
     fn create_spinner(&self, msg: String) -> ProgressBar {
         let spinner_style =
-            ProgressStyle::with_template("[{spinner:.cyan.dim.bold}] (# {pos:.green}) {wide_msg}")
+            ProgressStyle::with_template("[{spinner:.cyan.bold}] (# {pos:.green}) {wide_msg}")
                 .unwrap()
-                .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
+                .tick_chars("/|\\- ");
         let spinner = self.mp.add(
             ProgressBar::new_spinner()
                 .with_style(spinner_style)
@@ -390,22 +384,25 @@ fn canonicalize_path(path: &String, filetype: FileType) -> Result<PathBuf, Hashe
     match filetype {
         FileType::IsDir => {
             if !root_path.is_dir() {
-                return Err(FileError {
+                Err(FileError {
                     why: String::from("Path is not a valid directory"),
                     path: root_path.display().to_string(),
-                });
+                })
+            } else {
+                Ok(root_path)
             }
         }
         FileType::IsFile => {
             if !root_path.is_file() {
-                return Err(FileError {
+                Err(FileError {
                     why: String::from("Path is not a valid file"),
                     path: root_path.display().to_string(),
-                });
+                })
+            } else {
+                Ok(root_path)
             }
         }
-    };
-    Ok(root_path)
+    }
 }
 
 fn canonicalize_split_filepath(
@@ -444,7 +441,6 @@ fn hash_file(
     mp: &MultiProgress,
 ) -> Result<String, HasherError> {
     let mut hasher = select_hasher(alg);
-    let display_bar: bool = file_size > SIZE_128MB as u64;
     const O_DIRECT: i32 = 0x4000; // Linux
 
     #[cfg(not(target_os = "linux"))]
@@ -458,11 +454,14 @@ fn hash_file(
             .unwrap()
             .progress_chars("##-");
     let bar = mp.add(ProgressBar::new(file_size).with_style(style));
-    // this is dumb, but the only way to get a valid reference - have to add then remove the progress bar
+
+    // This is dumb, but the only way to get a valid, borrowable reference in Rust;
+    // we have to add - then remove - the progress bar because we want the bar
+    // only to display if files are larger than 128MB
+    let display_bar: bool = file_size > SIZE_128MB as u64;
     if display_bar {
         bar.set_message(format!("{:?}", path.file_name().unwrap()));
     } else {
-        // lock the multiprogress and remove the new bar if the file is too small
         mp.remove(&bar);
     }
 
@@ -514,28 +513,21 @@ fn hash_hexpattern() -> Regex {
     );
     // As this regex is initialized at process startup, panic instead
     // of returning an error
-    match Regex::new(STR_REGEX) {
-        Ok(v) => v,
-        Err(_e) => panic!("[!] Regular expression engine startup failure"),
-    }
+    Regex::new(STR_REGEX).expect("[!] Regular expression engine startup failure")
 }
 
 fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
-    let str_path = match file_path.file_name() {
-        Some(v) => v,
-        None => {
-            error!("[-] Failed to retrieve file name from path object");
-            return false;
+    if let Some(path) = file_path.file_name() {
+        if let Some(str_path) = path.to_str() {
+            hash_regex.is_match(str_path)
+        } else {
+            error!("[-] Failed to convert path to string");
+            false
         }
-    };
-    let is_match = hash_regex.is_match(match str_path.to_str() {
-        Some(v) => v,
-        None => {
-            error!("[-] Path string failed to parse");
-            return false;
-        }
-    });
-    is_match
+    } else {
+        error!("[-] Failed to retrieve file name from path object");
+        false
+    }
 }
 
 fn perform_hash_threadfunc(
