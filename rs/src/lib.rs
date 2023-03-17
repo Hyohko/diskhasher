@@ -357,7 +357,7 @@ impl Hasher {
         )
         .unwrap()
         .progress_chars("##-");
-        let total_progress_bar = self
+        let bar = self
             .mp
             .add(ProgressBar::new(num_files as u64).with_style(style));
         while let Some(mut ck) = self.checkedfiles.pop() {
@@ -375,10 +375,9 @@ impl Hasher {
             let loghandle = self.loghandle.clone();
             // after this point, no more stdout/stderr prints
             let mp = self.mp.clone();
-            let total_progress_bar = total_progress_bar.clone();
+            let bar = bar.clone();
             self.pool.execute(move || {
-                perform_hash_threadfunc(ck, alg, force, verbose, loghandle, mp, total_progress_bar)
-                    .ok();
+                perform_hash_threadfunc(ck, alg, force, verbose, loghandle, mp, bar).ok();
             });
         } // end while
         Ok(num_files)
