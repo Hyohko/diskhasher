@@ -300,13 +300,7 @@ impl Hasher {
             .filter(|e| e.file_type().is_file())
         {
             let path = entry.path().to_path_buf();
-            let size: u64 = match path.metadata() {
-                Ok(f) => f.len(),
-                Err(err) => {
-                    error!("[!] Failed to get metadata for {} : {err}", path.display());
-                    continue;
-                } // No error for now, keep processing
-            };
+            let size: u64 = path.metadata()?.len();
             file_vec.push(FileData::new(size, path));
             spinner.inc(1);
         }
@@ -362,6 +356,8 @@ impl Hasher {
                 None => {
                     if !force {
                         warn!("[!] {:?} => No hash found", ck.path());
+                        bar.inc(1);
+                        continue;
                     }
                 }
             };
