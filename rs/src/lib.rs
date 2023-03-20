@@ -32,6 +32,7 @@ use {
     clap::ValueEnum,
     custom_error::custom_error,
     digest::DynDigest,
+    indicatif::style::TemplateError,
     indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle},
     regex::Regex,
     std::cmp::Reverse,
@@ -49,19 +50,27 @@ use {
     walkdir::WalkDir,
 };
 
+#[cfg(target_os = "linux")]
+use std::{
+    fs::OpenOptions,
+    os::unix::fs::{MetadataExt, OpenOptionsExt},
+};
+
 // TODO - remove public fields
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct FileData {
     size: u64,
     path: PathBuf,
+    inode: u64,
     expected_hash: String,
 }
 
 impl FileData {
-    fn new(size: u64, path: PathBuf) -> Self {
+    fn new(size: u64, path: PathBuf, inode: u64) -> Self {
         FileData {
             size,
             path,
+            inode,
             expected_hash: String::new(),
         }
     }
@@ -70,6 +79,9 @@ impl FileData {
     }
     fn path(&self) -> &PathBuf {
         &self.path
+    }
+    fn inode(&self) -> u64 {
+        self.inode
     }
     fn path_string(&self) -> String {
         self.path.display().to_string()
@@ -85,6 +97,13 @@ impl FileData {
 enum FileType {
     IsDir,
     IsFile,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum FileSortLogic {
+    LargestFirst,
+    SmallestFirst,
+    InodeOrder,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -117,6 +136,15 @@ custom_error! {pub HasherError
     ThreadingError{why: String} = "Thread operation failed => {why}",
     ParseError{why: String} = "Parse error => {why}",
     IoError{why: String} = "IO Failure => {why}",
+    StyleError{why: String} = "ProgressBar style error => {why}"
+}
+
+impl From<TemplateError> for HasherError {
+    fn from(error: TemplateError) -> Self {
+        StyleError {
+            why: format!("{:?}", error),
+        }
+    }
 }
 
 // todo https://stackoverflow.com/questions/53934888/how-to-include-the-file-path-in-an-io-error-in-rust
@@ -179,6 +207,8 @@ impl Hasher {
             info!("[+] Defaulting to {avail_threads} worker threads, use '--jobs' arg to change");
         }
 
+        // As much as I hate this construction, there's no more efficient
+        // way to make it idiomatic Rust
         let loghandle = match logfile {
             Some(v) => {
                 info!("[+] Logging failed hashes to {v}");
@@ -207,9 +237,9 @@ impl Hasher {
         &mut self,
         force: bool,
         verbose: bool,
-        largest_first: bool,
+        sort_order: FileSortLogic,
     ) -> Result<(), HasherError> {
-        self.recursive_dir(force, largest_first)?;
+        self.recursive_dir(force)?;
         if let Err(err) = self.load_hashes() {
             match force {
                 true => {
@@ -220,6 +250,7 @@ impl Hasher {
                 }
             }
         };
+        self.sort_checked_files(sort_order);
         self.start_hash_threads(force, verbose)?;
         self.join()?;
         Ok(())
@@ -233,7 +264,7 @@ impl Hasher {
     fn load_hashes(&mut self) -> Result<(), HasherError> {
         self.hashmap.reserve(self.checkedfiles.len());
 
-        let spinner = self.create_spinner(String::from("[+] Parsing hashes from hashfiles"));
+        let spinner = self.create_spinner(String::from("[+] Parsing hashes from hashfiles"))?;
         let mut total_lines: i32 = 0;
         for f in &self.hashfiles {
             let mut hashpath = f.path().clone();
@@ -275,10 +306,9 @@ impl Hasher {
         }
     }
 
-    fn create_spinner(&self, msg: String) -> ProgressBar {
+    fn create_spinner(&self, msg: String) -> Result<ProgressBar, HasherError> {
         let spinner_style =
-            ProgressStyle::with_template("[{spinner:.cyan.bold}] (# {pos:.green}) {wide_msg}")
-                .unwrap()
+            ProgressStyle::with_template("[{spinner:.cyan.bold}] (# {pos:.green}) {wide_msg}")?
                 .tick_chars("/|\\- ");
         let spinner = self.mp.add(
             ProgressBar::new_spinner()
@@ -287,21 +317,22 @@ impl Hasher {
                 .with_message(msg),
         );
         spinner.enable_steady_tick(Duration::from_millis(120));
-        spinner
+        Ok(spinner)
     }
 
-    fn recursive_dir(&mut self, force: bool, largest_first: bool) -> Result<(), HasherError> {
+    fn recursive_dir(&mut self, force: bool) -> Result<(), HasherError> {
         let mut file_vec = Vec::<FileData>::new();
 
-        let spinner = self.create_spinner(format!("[+] Recursing through {:?}", self.root));
+        let spinner = self.create_spinner(format!("[+] Recursing through {:?}", self.root))?;
         for entry in WalkDir::new(&self.root)
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
         {
             let path = entry.path().to_path_buf();
-            let size: u64 = path.metadata()?.len();
-            file_vec.push(FileData::new(size, path));
+            let size = path.metadata()?.len();
+            let inode = path.metadata()?.ino();
+            file_vec.push(FileData::new(size, path, inode));
             spinner.inc(1);
         }
         self.mp.remove(&spinner);
@@ -320,17 +351,27 @@ impl Hasher {
             }
         }
         info!("[*] {} files in the queue", self.checkedfiles.len());
-
-        // actual testing indicates that the Reverse sort order puts smallest first, for some reason...
-        if largest_first {
-            info!("[*] Sorting files by size, largest first");
-            self.checkedfiles.sort_unstable_by_key(|a| a.size());
-        } else {
-            info!("[*] Sorting files by size, smallest first");
-            self.checkedfiles
-                .sort_unstable_by_key(|a| Reverse(a.size()));
-        }
         Ok(())
+    }
+
+    fn sort_checked_files(&mut self, sort_order: FileSortLogic) {
+        // actual testing indicates that the Reverse sort order puts smallest first, for some reason...
+        match sort_order {
+            FileSortLogic::InodeOrder => {
+                info!("[*] Sorting files by inode");
+                self.checkedfiles
+                    .sort_unstable_by_key(|a| Reverse(a.inode()));
+            }
+            FileSortLogic::SmallestFirst => {
+                info!("[*] Sorting files by size, smallest first");
+                self.checkedfiles
+                    .sort_unstable_by_key(|a| Reverse(a.size()));
+            }
+            FileSortLogic::LargestFirst => {
+                info!("[*] Sorting files by size, largest first");
+                self.checkedfiles.sort_unstable_by_key(|a| a.size());
+            }
+        }
     }
 
     fn start_hash_threads(&mut self, force: bool, verbose: bool) -> Result<usize, HasherError> {
@@ -342,9 +383,8 @@ impl Hasher {
         let num_files = self.checkedfiles.len();
         let style: ProgressStyle = ProgressStyle::with_template(
             "[{elapsed_precise}] {bar:40.red/magenta} ({percent:2}%) {pos:>7.green}/{len:7.green} * Total File Progress *",
-        )
-        .unwrap()
-        .progress_chars("##-");
+        )?
+        .progress_chars("==>");
         let bar = self
             .mp
             .add(ProgressBar::new(num_files as u64).with_style(style));
@@ -363,7 +403,7 @@ impl Hasher {
             };
             let alg = self.alg;
             let loghandle = self.loghandle.clone();
-            // after this point, no more stdout/stderr prints
+            // after this point, avoid more stdout/stderr prints
             let mp = self.mp.clone();
             let bar = bar.clone();
             self.pool.execute(move || {
@@ -425,11 +465,10 @@ fn canonicalize_split_filepath(
 #[repr(C, align(4096))]
 struct AlignedHashBuffer([u8; SIZE_2MB]);
 
-#[cfg(target_os = "linux")]
-use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
-
 const SIZE_2MB: usize = 1024 * 1024 * 2; // 2 MB
 const SIZE_128MB: usize = 1024 * 1024 * 128;
+const O_DIRECT: i32 = 0x4000; // Linux
+
 fn hash_file(
     path: &PathBuf,
     file_size: u64,
@@ -437,7 +476,6 @@ fn hash_file(
     mp: &MultiProgress,
 ) -> Result<String, HasherError> {
     let mut hasher = select_hasher(alg);
-    const O_DIRECT: i32 = 0x4000; // Linux
 
     #[cfg(not(target_os = "linux"))]
     let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
@@ -445,10 +483,10 @@ fn hash_file(
     #[cfg(target_os = "linux")]
     let mut buffer: Box<AlignedHashBuffer> = Box::new(AlignedHashBuffer([0u8; SIZE_2MB]));
 
-    let style: ProgressStyle =
-        ProgressStyle::with_template("[{elapsed_precise}] {bar:40.cyan/blue} ({percent:2}%) {msg}")
-            .unwrap()
-            .progress_chars("##-");
+    let style: ProgressStyle = ProgressStyle::with_template(
+        "[{elapsed_precise}] {bar:40.cyan/blue} ({percent:2}%) {msg}",
+    )?
+    .progress_chars("##-");
     let bar = mp.add(ProgressBar::new(file_size).with_style(style));
 
     // This is dumb, but the only way to get a valid, borrowable reference in Rust;

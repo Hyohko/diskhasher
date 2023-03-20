@@ -23,14 +23,13 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
-
 extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
 use {
     clap::Parser,
-    diskhasher::{HashAlg, Hasher, HasherError},
+    diskhasher::{FileSortLogic, HashAlg, Hasher, HasherError},
     log::LevelFilter,
 };
 
@@ -57,10 +56,11 @@ struct Arguments {
     /// Print all results to stdout
     #[clap(short, long, action)]
     pub verbose: bool,
-    /// Hash largest files first instead of smallest files
-    #[clap(long, action)]
-    pub largest: bool,
-    /// [Optional] name of a file to which failed hashes will be logged
+    /// File sorting order
+    #[clap(short, long)]
+    #[arg(value_enum, default_value_t=FileSortLogic::InodeOrder)]
+    pub sorting: FileSortLogic,
+    /// Regex pattern used to identify hashfiles
     #[clap(short, long)]
     pub logfile: Option<String>,
     /// [Optional] number of jobs (will be capped by number of cores)
@@ -93,7 +93,7 @@ fn main() -> Result<(), HasherError> {
             return Err(err);
         }
     };*/
-    if let Err(err) = myhasher.run(args.force, args.verbose, args.largest) {
+    if let Err(err) = myhasher.run(args.force, args.verbose, args.sorting) {
         error!("[!] Hasher runtime failure => {err}");
         return Err(err);
     };
