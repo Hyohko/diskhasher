@@ -120,10 +120,8 @@ mod splitline {
     #[test]
     fn checklengths() {
         let good_path = "./exists.txt".to_string();
+        assert!(File::create(&good_path).is_ok());
         let good_path_display: PathBuf = fs::canonicalize(&good_path).unwrap();
-        {
-            let _testfile = File::create(&good_path);
-        }
 
         let newlines: Vec<String> = vec![
             format!("abcdef1234567890abcdef1234567890 {good_path}"), //md5
@@ -139,6 +137,36 @@ mod splitline {
             assert!(result.is_ok());
             assert_eq!(result.unwrap().1, good_path_display);
         }
+    }
+}
+
+mod implements_traits {
+    use crate::*;
+
+    #[test]
+    fn debug_print() {
+        let hasher: Hasher = Hasher::new(
+            HashAlg::MD5,
+            String::from("./"),
+            String::from(""),
+            None,
+            None,
+        )
+        .unwrap();
+        println!("{:?}", hasher);
+    }
+
+    #[test]
+    fn can_clone() {
+        let hasher: Hasher = Hasher::new(
+            HashAlg::MD5,
+            String::from("./"),
+            String::from(""),
+            None,
+            None,
+        )
+        .unwrap();
+        let _myclone = hasher.clone();
     }
 }
 

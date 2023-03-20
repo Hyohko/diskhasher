@@ -32,8 +32,9 @@ use {
     clap::ValueEnum,
     custom_error::custom_error,
     digest::DynDigest,
-    hex,
+    indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle},
     regex::Regex,
+    std::cmp::Reverse,
     std::collections::HashMap,
     std::fmt::{self, Display, Formatter},
     std::fs,
@@ -41,9 +42,9 @@ use {
     std::io::{BufRead, BufReader, Read, Write},
     std::mem,
     std::path::{Path, PathBuf},
-    std::sync::atomic::{AtomicUsize, Ordering},
     std::sync::{Arc, Mutex},
     std::thread,
+    std::time::Duration,
     threadpool::ThreadPool,
     walkdir::WalkDir,
 };
@@ -128,7 +129,7 @@ impl From<std::io::Error> for HasherError {
 }
 
 use crate::HasherError::*;
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Hasher {
     pool: ThreadPool,
     alg: HashAlg,
@@ -138,6 +139,7 @@ pub struct Hasher {
     checkedfiles: Vec<FileData>,
     hashmap: HashMap<PathBuf, String>,
     loghandle: Option<Arc<Mutex<File>>>,
+    mp: MultiProgress, // is an Arc type
 }
 
 impl Hasher {
@@ -147,24 +149,35 @@ impl Hasher {
         root_dir: String,
         hashfile_pattern: String,
         logfile: Option<String>,
+        num_threads: Option<usize>,
     ) -> Result<Self, HasherError> {
-        let hash_regex = match Regex::new(&hashfile_pattern) {
-            Ok(v) => v,
-            Err(err) => {
-                return Err(RegexError {
-                    why: format!("'{hashfile_pattern}' returns error {err}"),
-                })
-            }
-        };
+        let hash_regex = Regex::new(&hashfile_pattern).map_err(|err| RegexError {
+            why: format!("'{hashfile_pattern}' returns error {err}"),
+        })?;
+
         let root = canonicalize_path(&root_dir, FileType::IsDir)?;
-        let num_threads = match thread::available_parallelism() {
-            Ok(v) => v.get(),
-            Err(err) => {
-                return Err(ThreadingError {
-                    why: format!("{err}: Couldn't get number of available threads"),
-                });
+
+        let mut avail_threads = thread::available_parallelism()
+            .map_err(|err| ThreadingError {
+                why: format!("{err}: Couldn't get number of available threads"),
+            })?
+            .get();
+
+        if let Some(total_threads) = num_threads {
+            if total_threads > avail_threads {
+                warn!("[!] Only {avail_threads} threads available");
+            } else {
+                avail_threads = total_threads
             }
-        };
+            info!("[+] Allocating {avail_threads} worker threads in the thread pool");
+        } else {
+            // cap total running threads at the num of cores or 12 threads (which is plenty),
+            // whatever is smaller. Much larger than this and it screws
+            // up the progress bar rendering, though we still let the user shoot their
+            // own feet in the if let above.
+            avail_threads = std::cmp::min(avail_threads, 12);
+            info!("[+] Defaulting to {avail_threads} worker threads, use '--jobs' arg to change");
+        }
 
         let loghandle = match logfile {
             Some(v) => {
@@ -175,8 +188,10 @@ impl Hasher {
             None => None,
         };
 
+        let mp = MultiProgress::new();
+
         Ok(Hasher {
-            pool: ThreadPool::new(num_threads),
+            pool: ThreadPool::new(avail_threads),
             alg,
             root,
             hash_regex,
@@ -184,6 +199,7 @@ impl Hasher {
             checkedfiles: vec![],
             hashmap: [].into(),
             loghandle,
+            mp,
         })
     }
 
@@ -204,16 +220,9 @@ impl Hasher {
                 }
             }
         };
-        let num_files = self.checkedfiles.len();
         self.start_hash_threads(force, verbose)?;
         self.join()?;
-        self.hashcount_monitor(num_files);
         Ok(())
-    }
-
-    //  Private Functions
-    fn hashcount_monitor(&self, total_files: usize) {
-        increment_hashcount(total_files);
     }
 
     fn join(&self) -> Result<(), HasherError> {
@@ -224,25 +233,22 @@ impl Hasher {
     fn load_hashes(&mut self) -> Result<(), HasherError> {
         self.hashmap.reserve(self.checkedfiles.len());
 
+        let spinner = self.create_spinner(String::from("[+] Parsing hashes from hashfiles"));
+        let mut total_lines: i32 = 0;
         for f in &self.hashfiles {
             let mut hashpath = f.path().clone();
             hashpath.pop();
 
-            let file = File::open(f.path()).or_else(|err| {
-                return Err(FileError {
-                    why: format!("{err} : Hashfile cannot be opened"),
-                    path: f.path_string(),
-                });
+            let file = File::open(f.path()).map_err(|err| FileError {
+                why: format!("{err} : Hashfile cannot be opened"),
+                path: f.path_string(),
             })?;
 
             let reader = BufReader::new(file);
-            let mut num_lines: i32 = 0;
             for line in reader.lines() {
-                let newline = line.or_else(|err| {
-                    return Err(FileError {
-                        why: format!("{err} : Line from file cannot be read"),
-                        path: f.path_string(),
-                    });
+                let newline = line.map_err(|err| FileError {
+                    why: format!("{err} : Line from file cannot be read"),
+                    path: f.path_string(),
                 })?;
 
                 let (hashval, canonical_path) = match split_hashfile_line(&newline, &hashpath) {
@@ -253,70 +259,76 @@ impl Hasher {
                     }
                 };
                 self.hashmap.insert(canonical_path, hashval);
-                num_lines += 1;
-                if num_lines % 500 == 0 {
-                    info!("[*] {num_lines} hashes read from {}", f.path_string());
-                }
+                total_lines += 1;
+                spinner.inc(1);
             }
         }
+        self.mp.remove(&spinner);
 
-        if self.hashmap.len() == 0 {
-            return Err(HashError {
+        if self.hashmap.is_empty() {
+            Err(HashError {
                 why: String::from("No hashes read from hashfiles"),
-            });
+            })
+        } else {
+            info!("[*] {total_lines} hashes read from all hashfiles");
+            Ok(())
         }
-        Ok(())
+    }
+
+    fn create_spinner(&self, msg: String) -> ProgressBar {
+        let spinner_style =
+            ProgressStyle::with_template("[{spinner:.cyan.bold}] (# {pos:.green}) {wide_msg}")
+                .unwrap()
+                .tick_chars("/|\\- ");
+        let spinner = self.mp.add(
+            ProgressBar::new_spinner()
+                .with_style(spinner_style)
+                .with_finish(ProgressFinish::AndLeave)
+                .with_message(msg),
+        );
+        spinner.enable_steady_tick(Duration::from_millis(120));
+        spinner
     }
 
     fn recursive_dir(&mut self, force: bool, largest_first: bool) -> Result<(), HasherError> {
         let mut file_vec = Vec::<FileData>::new();
-        let mut files_added: i32 = 0;
+
+        let spinner = self.create_spinner(format!("[+] Recursing through {:?}", self.root));
         for entry in WalkDir::new(&self.root)
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
         {
             let path = entry.path().to_path_buf();
-            let size: u64 = match path.metadata() {
-                Ok(f) => f.len(),
-                Err(err) => {
-                    error!("[!] Failed to get metadata for {} : {err}", path.display());
-                    continue;
-                } // No error for now, keep processing
-            };
-            //if size == 0 {
-            //    warn!("[!] File {} is empty, skipping", path.display())
-            //}
+            let size: u64 = path.metadata()?.len();
             file_vec.push(FileData::new(size, path));
-            files_added += 1;
-            if files_added % 500 == 0 {
-                info!("[*] Added {files_added} files to be hashed");
-            }
+            spinner.inc(1);
         }
+        self.mp.remove(&spinner);
 
         // Split the file vec into hash files and non-hashfiles
         info!("[+] Identifying hashfiles");
         (self.hashfiles, self.checkedfiles) = file_vec
             .into_iter()
             .partition(|f| path_matches_regex(&self.hash_regex, f.path()));
-        if self.hashfiles.len() == 0 {
+        if self.hashfiles.is_empty() {
             let reason = String::from("No hashfiles matched the hashfile pattern");
             if !force {
                 return Err(RegexError { why: reason });
             } else {
-                warn!("{reason}");
+                warn!("[-] {reason}");
             }
         }
         info!("[*] {} files in the queue", self.checkedfiles.len());
 
+        // actual testing indicates that the Reverse sort order puts smallest first, for some reason...
         if largest_first {
             info!("[*] Sorting files by size, largest first");
-            self.checkedfiles
-                .sort_unstable_by(|a, b| a.size().cmp(&b.size()));
+            self.checkedfiles.sort_unstable_by_key(|a| a.size());
         } else {
             info!("[*] Sorting files by size, smallest first");
             self.checkedfiles
-                .sort_unstable_by(|a, b| b.size().cmp(&a.size()));
+                .sort_unstable_by_key(|a| Reverse(a.size()));
         }
         Ok(())
     }
@@ -328,6 +340,14 @@ impl Hasher {
         );
 
         let num_files = self.checkedfiles.len();
+        let style: ProgressStyle = ProgressStyle::with_template(
+            "[{elapsed_precise}] {bar:40.red/magenta} ({percent:2}%) {pos:>7.green}/{len:7.green} * Total File Progress *",
+        )
+        .unwrap()
+        .progress_chars("##-");
+        let bar = self
+            .mp
+            .add(ProgressBar::new(num_files as u64).with_style(style));
         while let Some(mut ck) = self.checkedfiles.pop() {
             match self.hashmap.remove(ck.path()) {
                 Some(mut v) => {
@@ -336,14 +356,18 @@ impl Hasher {
                 None => {
                     if !force {
                         warn!("[!] {:?} => No hash found", ck.path());
+                        bar.inc(1);
+                        continue;
                     }
-                    self.hashcount_monitor(num_files);
                 }
             };
             let alg = self.alg;
             let loghandle = self.loghandle.clone();
+            // after this point, no more stdout/stderr prints
+            let mp = self.mp.clone();
+            let bar = bar.clone();
             self.pool.execute(move || {
-                perform_hash_threadfunc(ck, alg, force, verbose, num_files, loghandle).ok();
+                perform_hash_threadfunc(ck, alg, force, verbose, loghandle, mp, bar).ok();
             });
         } // end while
         Ok(num_files)
@@ -356,27 +380,30 @@ fn canonicalize_path(path: &String, filetype: FileType) -> Result<PathBuf, Hashe
     match filetype {
         FileType::IsDir => {
             if !root_path.is_dir() {
-                return Err(FileError {
+                Err(FileError {
                     why: String::from("Path is not a valid directory"),
                     path: root_path.display().to_string(),
-                });
+                })
+            } else {
+                Ok(root_path)
             }
         }
         FileType::IsFile => {
             if !root_path.is_file() {
-                return Err(FileError {
+                Err(FileError {
                     why: String::from("Path is not a valid file"),
                     path: root_path.display().to_string(),
-                });
+                })
+            } else {
+                Ok(root_path)
             }
         }
-    };
-    Ok(root_path)
+    }
 }
 
 fn canonicalize_split_filepath(
-    splitline: &Vec<&str>,
-    hashpath: &PathBuf,
+    splitline: &[&str],
+    hashpath: &Path,
 ) -> Result<PathBuf, HasherError> {
     let file_path = splitline[1..].join(" ");
 
@@ -402,31 +429,14 @@ struct AlignedHashBuffer([u8; SIZE_2MB]);
 use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt};
 
 const SIZE_2MB: usize = 1024 * 1024 * 2; // 2 MB
-const READS_PER_256MB: i32 = 128;
-
-// Macroize this instead of a function b/c we don't want the
-// overhead of a function call
-#[macro_export]
-macro_rules! display_gb {
-    ( $( $rd:expr, $blk:expr, $pth:expr ),* ) => {
-        {
-            $($rd += 1;
-            if $rd % READS_PER_256MB == 0 {
-                $blk += 1;
-                info!(
-                    "{:.2} GB processed for {:?}",
-                    ($blk) as f32 / 4.0,
-                    $pth.file_name().unwrap()
-                );
-            })*
-        }
-    };
-}
-
-fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
+const SIZE_128MB: usize = 1024 * 1024 * 128;
+fn hash_file(
+    path: &PathBuf,
+    file_size: u64,
+    alg: HashAlg,
+    mp: &MultiProgress,
+) -> Result<String, HasherError> {
     let mut hasher = select_hasher(alg);
-    let mut num_blocks: i32 = 0;
-    let mut reads: i32 = 0;
     const O_DIRECT: i32 = 0x4000; // Linux
 
     #[cfg(not(target_os = "linux"))]
@@ -434,6 +444,22 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
 
     #[cfg(target_os = "linux")]
     let mut buffer: Box<AlignedHashBuffer> = Box::new(AlignedHashBuffer([0u8; SIZE_2MB]));
+
+    let style: ProgressStyle =
+        ProgressStyle::with_template("[{elapsed_precise}] {bar:40.cyan/blue} ({percent:2}%) {msg}")
+            .unwrap()
+            .progress_chars("##-");
+    let bar = mp.add(ProgressBar::new(file_size).with_style(style));
+
+    // This is dumb, but the only way to get a valid, borrowable reference in Rust;
+    // we have to add - then remove - the progress bar because we want the bar
+    // only to display if files are larger than 128MB
+    let display_bar: bool = file_size > SIZE_128MB as u64;
+    if display_bar {
+        bar.set_message(format!("{:?}", path.file_name().unwrap()));
+    } else {
+        mp.remove(&bar);
+    }
 
     let mut file = OpenOptions::new()
         .read(true)
@@ -452,11 +478,16 @@ fn hash_file(path: &PathBuf, alg: HashAlg) -> Result<String, HasherError> {
             read_count = file.read(&mut buffer[..SIZE_2MB])?;
             hasher.update(&buffer[..read_count]);
         }
-
+        if display_bar {
+            bar.inc(read_count as u64);
+        }
         if read_count < SIZE_2MB {
             break;
         }
-        display_gb!(reads, num_blocks, path);
+    }
+    if display_bar {
+        bar.finish_and_clear();
+        mp.remove(&bar);
     }
 
     Ok(hex::encode(hasher.finalize()))
@@ -478,56 +509,21 @@ fn hash_hexpattern() -> Regex {
     );
     // As this regex is initialized at process startup, panic instead
     // of returning an error
-    let expr = match Regex::new(&STR_REGEX) {
-        Ok(v) => v,
-        Err(_e) => panic!("[!] Regular expression engine startup failure"),
-    };
-    expr
+    Regex::new(STR_REGEX).expect("[!] Regular expression engine startup failure")
 }
 
-// Why the separation? We may want to have a per-Hasher object mutex
-// and hash count if we spin up multiple. Future-proofing.
-fn increment_hashcount(total_files: usize) {
-    static S_ATOMIC_HASHCOUNT: Mutex<AtomicUsize> = Mutex::new(AtomicUsize::new(0));
-    increment_hashcount_func(&S_ATOMIC_HASHCOUNT, total_files);
-}
-
-fn increment_hashcount_func(_atomic_hashcount: &Mutex<AtomicUsize>, total_files: usize) {
-    let _guard = _atomic_hashcount
-        .lock()
-        .expect("If a mutex lock fails, there is a design flaw. Rewrite code.");
-    if total_files == 0 {
-        warn!("[!] No files to hash");
-        return;
-    }
-    (*_guard).fetch_add(1, Ordering::SeqCst);
-    let curr_hashes: usize = (*_guard).load(Ordering::SeqCst);
-    let pct_complete: f64 = ((curr_hashes) as f64 / (total_files) as f64) * 100.0;
-    let approx_five_pct: usize = total_files / 20;
-    if curr_hashes % 500 == 0 || curr_hashes % approx_five_pct == 0 {
-        info!("[*] ({pct_complete:.2}%) {curr_hashes} hashes complete");
-    }
-    if curr_hashes == total_files {
-        info!("[*] ({pct_complete:.2}%) {curr_hashes} hashes - Hashing Complete");
-    }
-}
-
-fn path_matches_regex(hash_regex: &Regex, file_path: &PathBuf) -> bool {
-    let str_path = match file_path.file_name() {
-        Some(v) => v,
-        None => {
-            error!("[-] Failed to retrieve file name from path object");
-            return false;
+fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
+    if let Some(path) = file_path.file_name() {
+        if let Some(str_path) = path.to_str() {
+            hash_regex.is_match(str_path)
+        } else {
+            error!("[-] Failed to convert path to string");
+            false
         }
-    };
-    let is_match = hash_regex.is_match(match str_path.to_str() {
-        Some(v) => v,
-        None => {
-            error!("[-] Path string failed to parse");
-            return false;
-        }
-    });
-    is_match
+    } else {
+        error!("[-] Failed to retrieve file name from path object");
+        false
+    }
 }
 
 fn perform_hash_threadfunc(
@@ -535,43 +531,43 @@ fn perform_hash_threadfunc(
     alg: HashAlg,
     force: bool,
     verbose: bool,
-    num_files: usize,
     loghandle: Option<Arc<Mutex<File>>>,
+    mp: MultiProgress,           // is already an Arc
+    total_progress: ProgressBar, // is already an Arc
 ) -> Result<(), HasherError> {
-    let actual_hash = hash_file(fdata.path(), alg)?;
+    total_progress.inc(1);
+    let actual_hash = hash_file(fdata.path(), fdata.size(), alg, &mp)?;
     if force {
         let result = format!(
-            "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}",
+            "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}\n",
             fdata.path(),
             actual_hash
         );
-        info!("{result}");
+        mp.println(&result).ok();
         write_to_log(&result, &loghandle);
     } else {
         // Compare
-        let success: bool = fdata.hash() == &actual_hash;
-        if success {
+        if fdata.hash() == &actual_hash {
             if verbose {
                 let result = format!(
-                    "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}",
+                    "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}\n",
                     fdata.path(),
                     actual_hash
                 );
-                info!("{result}");
+                mp.println(&result).ok();
                 write_to_log(&result, &loghandle);
             }
         } else {
             let result = format!(
-                "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}",
+                "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}\n",
                 fdata.path(),
                 fdata.hash(),
                 actual_hash
             );
-            error!("{result}");
+            mp.println(&result).ok();
             write_to_log(&result, &loghandle);
         }
     }
-    increment_hashcount(num_files);
     Ok(())
 }
 
@@ -588,7 +584,7 @@ fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
 
 fn split_hashfile_line(
     newline: &String,
-    hashpath: &PathBuf,
+    hashpath: &Path,
 ) -> Result<(String, PathBuf), HasherError> {
     let splitline: Vec<&str> = newline.split_whitespace().collect();
     if splitline.len() < 2 {
@@ -614,24 +610,18 @@ fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
                     });
                 }
             }
-            return Ok(());
+            Ok(())
         }
-        _ => {
-            return Err(ParseError {
-                why: format!("Bad hexstring length: {hexlen}"),
-            });
-        }
+        _ => Err(ParseError {
+            why: format!("Bad hexstring length: {hexlen}"),
+        }),
     }
 }
 
 fn write_to_log(msg: &String, loghandle: &Option<Arc<Mutex<File>>>) {
-    match loghandle {
-        Some(handle) => {
-            let mut guarded_filehandle = handle.lock().unwrap();
-            (*guarded_filehandle).write(msg.as_bytes()).ok();
-            (*guarded_filehandle).write(b"\n").ok();
-        }
-        None => return,
+    if let Some(handle) = loghandle {
+        let mut guarded_filehandle = handle.lock().expect("Mutex unlock failure - Panic!");
+        (*guarded_filehandle).write(msg.as_bytes()).ok();
     }
 }
 ///////////////////////////////////////////////////////////////////////////////

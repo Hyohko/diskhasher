@@ -58,15 +58,18 @@ struct Arguments {
     #[clap(short, long, action)]
     pub verbose: bool,
     /// Hash largest files first instead of smallest files
-    #[clap(short, long, action)]
+    #[clap(long, action)]
     pub largest: bool,
     /// [Optional] name of a file to which failed hashes will be logged
     #[clap(short, long)]
     pub logfile: Option<String>,
+    /// [Optional] number of jobs (will be capped by number of cores)
+    #[clap(short, long)]
+    pub jobs: Option<usize>,
 }
 
 fn main() -> Result<(), HasherError> {
-    let mut _logbuilder = pretty_env_logger::formatted_timed_builder()
+    pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Info)
         .init();
 
@@ -81,6 +84,7 @@ fn main() -> Result<(), HasherError> {
         args.directory.clone(),
         pattern,
         args.logfile,
+        args.jobs,
     )?;
     /*{
         Ok(v) => v,
@@ -89,14 +93,10 @@ fn main() -> Result<(), HasherError> {
             return Err(err);
         }
     };*/
-    myhasher.run(args.force, args.verbose, args.largest)?;
-    /*{
-        Ok(v) => v,
-        Err(err) => {
-            error!("[!] Hasher runtime failure => {err}");
-            return Err(err);
-        }
-    };*/
+    if let Err(err) = myhasher.run(args.force, args.verbose, args.largest) {
+        error!("[!] Hasher runtime failure => {err}");
+        return Err(err);
+    };
     info!("[+] Done");
     Ok(())
 }
