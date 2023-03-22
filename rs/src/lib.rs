@@ -296,25 +296,21 @@ impl Hasher {
 
             let reader = BufReader::new(file);
             for line in reader.lines() {
-                let newline = line.map_err(|err| FileError {
-                    why: format!("{err} : Line from file cannot be read"),
-                    path: f.path_string(),
-                })?;
-
-                let (hashval, canonical_path) = match split_hashfile_line(&newline, &hashpath) {
-                    Ok(v) => v,
+                let newline = line?;
+                match split_hashfile_line(&newline, &hashpath) {
+                    Ok(v) => self.hashmap.insert(v.0, v.1),
                     Err(err) => {
-                        error!("[!] {err} : Failed to parse line from hashfile :: '{newline}'");
+                        error!("[!] {err} : Failed to parse line from hashfile :: {newline}");
                         continue;
                     }
                 };
-                self.hashmap.insert(canonical_path, hashval);
                 total_lines += 1;
                 spinner.inc(1);
             }
         }
         self.mp.remove(&spinner);
 
+        self.hashmap.shrink_to_fit();
         if self.hashmap.is_empty() {
             Err(HashError {
                 why: String::from("No hashes read from hashfiles"),
@@ -430,7 +426,7 @@ impl Hasher {
 
         let num_files = self.checkedfiles.len();
         let style: ProgressStyle = ProgressStyle::with_template(
-            "[{elapsed_precise}] {bar:40.red/magenta} ({percent:2}%) {pos:>7.green}/{len:7.green} * Total File Progress *",
+            "[{elapsed_precise}] ({percent:3}%) {bar:30.red/magenta} {pos:>7.green}/{len:7.green} * Total File Progress *",
         )?
         .progress_chars("==>");
         let bar = self
@@ -500,63 +496,64 @@ const O_DIRECT: i32 = 0x4000; // Linux
 
 fn hash_file(fdata: &FileData, alg: HashAlg, mp: &MultiProgress) -> Result<String, HasherError> {
     let mut hasher: Box<dyn DynDigest> = select_hasher(alg);
+    let mut read_count: usize;
 
     #[cfg(not(target_os = "linux"))]
     let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
 
     #[cfg(target_os = "linux")]
     let mut buffer: Box<AlignedHashBuffer> = Box::new(AlignedHashBuffer([0u8; SIZE_2MB]));
-
-    let style: ProgressStyle = ProgressStyle::with_template(
-        "[{elapsed_precise}] {bar:40.cyan/blue} ({percent:2}%) {msg}",
-    )?
-    .progress_chars("##-");
-    let bar = mp.add(ProgressBar::new(fdata.size()).with_style(style));
-
-    // This is dumb, but the only way to get a valid, borrowable reference in Rust;
-    // we have to add - then remove - the progress bar because we want the bar
-    // only to display if files are larger than 128MB
-    let display_bar: bool = fdata.size() > SIZE_128MB as u64;
-    if display_bar {
-        bar.set_message(format!("{:?}", fdata.path().file_name().unwrap()));
-    } else {
-        mp.remove(&bar);
-    }
-
     let mut file = OpenOptions::new()
         .read(true)
         .custom_flags(O_DIRECT)
         .open(fdata.path())?;
-    loop {
-        let read_count: usize;
-        #[cfg(target_os = "linux")]
-        {
-            read_count = file.read(&mut buffer.0[..SIZE_2MB])?;
-            hasher.update(&buffer.0[..read_count]);
-        }
 
-        #[cfg(not(target_os = "linux"))]
-        {
-            read_count = file.read(&mut buffer[..SIZE_2MB])?;
-            hasher.update(&buffer[..read_count]);
+    if fdata.size() > SIZE_128MB as u64 {
+        let style: ProgressStyle = ProgressStyle::with_template(
+            "[{elapsed_precise}] ({percent:3}%) {bar:30.cyan/blue} {bytes:.green}/{total_bytes:.green} {msg}",
+        )?
+        .progress_chars("##-");
+        let bar = mp.add(ProgressBar::new(fdata.size()).with_style(style));
+        bar.set_message(format!("{:?}", fdata.path().file_name().unwrap()));
+        loop {
+            #[cfg(target_os = "linux")]
+            {
+                read_count = bar.wrap_read(&file).read(&mut buffer.0[..SIZE_2MB])?;
+                hasher.update(&buffer.0[..read_count]);
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                read_count = bar.wrap_read(&file).read(&mut buffer[..SIZE_2MB])?;
+                hasher.update(&buffer[..read_count]);
+            }
+            if read_count < SIZE_2MB {
+                break;
+            }
         }
-        if display_bar {
-            bar.inc(read_count as u64);
-        }
-        if read_count < SIZE_2MB {
-            break;
-        }
-    }
-    if display_bar {
         bar.finish_and_clear();
         mp.remove(&bar);
+        drop(bar);
+    } else {
+        loop {
+            #[cfg(target_os = "linux")]
+            {
+                read_count = file.read(&mut buffer.0[..SIZE_2MB])?;
+                hasher.update(&buffer.0[..read_count]);
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                read_count = file.read(&mut buffer[..SIZE_2MB])?;
+                hasher.update(&buffer[..read_count]);
+            }
+            if read_count < SIZE_2MB {
+                break;
+            }
+        }
     }
-    drop(bar);
-
     Ok(hex::encode(hasher.finalize()))
 }
 
-use lazy_static::lazy_static;
+/*use lazy_static::lazy_static;
 lazy_static! {
     static ref HEXSTRING_PATTERN: Regex = hash_hexpattern();
 }
@@ -573,7 +570,7 @@ fn hash_hexpattern() -> Regex {
     // As this regex is initialized at process startup, panic instead
     // of returning an error
     Regex::new(STR_REGEX).expect("[!] Regular expression engine startup failure")
-}
+}*/
 
 fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
     if let Some(path) = file_path.file_name() {
@@ -600,8 +597,9 @@ fn perform_hash_threadfunc(
 ) -> Result<(), HasherError> {
     total_progress.inc(1);
     let actual_hash = hash_file(&fdata, alg, &mp)?;
+    let result: String;
     if force {
-        let result = format!(
+        result = format!(
             "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}\n",
             fdata.path(),
             actual_hash
@@ -612,7 +610,7 @@ fn perform_hash_threadfunc(
         // Compare
         if fdata.hash() == &actual_hash {
             if verbose {
-                let result = format!(
+                result = format!(
                     "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}\n",
                     fdata.path(),
                     actual_hash
@@ -621,7 +619,7 @@ fn perform_hash_threadfunc(
                 write_to_log(&result, &loghandle);
             }
         } else {
-            let result = format!(
+            result = format!(
                 "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}\n",
                 fdata.path(),
                 fdata.hash(),
@@ -651,7 +649,7 @@ fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
 fn split_hashfile_line(
     newline: &String,
     hashpath: &Path,
-) -> Result<(String, PathBuf), HasherError> {
+) -> Result<(PathBuf, String), HasherError> {
     let splitline: Vec<&str> = newline.split_whitespace().collect();
     if splitline.len() < 2 {
         Err(ParseError {
@@ -662,7 +660,7 @@ fn split_hashfile_line(
         //alternate - !HEXSTRING_PATTERN.is_match(hashval), maybe someday
         validate_hexstring(hashval)?;
         let canonical_path = canonicalize_split_filepath(&splitline, hashpath)?;
-        Ok((String::from(hashval), canonical_path))
+        Ok((canonical_path, String::from(hashval)))
     }
 }
 
