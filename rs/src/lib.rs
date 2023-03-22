@@ -426,7 +426,7 @@ impl Hasher {
 
         let num_files = self.checkedfiles.len();
         let style: ProgressStyle = ProgressStyle::with_template(
-            "[{elapsed_precise}] ({percent:3}%) {bar:30.red/magenta} {pos:>7.green}/{len:7.green} * Total File Progress *",
+            "[{elapsed_precise}] ({percent:3}%) {bar:30.red/magenta} {pos:>10.green}/{len:<10.green} * Total File Progress *",
         )?
         .progress_chars("==>");
         let bar = self
@@ -510,7 +510,7 @@ fn hash_file(fdata: &FileData, alg: HashAlg, mp: &MultiProgress) -> Result<Strin
 
     if fdata.size() > SIZE_128MB as u64 {
         let style: ProgressStyle = ProgressStyle::with_template(
-            "[{elapsed_precise}] ({percent:3}%) {bar:30.cyan/blue} {bytes:.green}/{total_bytes:.green} {msg}",
+            "[{elapsed_precise}] ({percent:3}%) {bar:30.cyan/blue} {bytes:>10.green}/{total_bytes:<10.green} {msg}",
         )?
         .progress_chars("##-");
         let bar = mp.add(ProgressBar::new(fdata.size()).with_style(style));
