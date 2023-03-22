@@ -47,7 +47,7 @@ use {
     std::thread,
     std::time::Duration,
     threadpool::ThreadPool,
-    walkdir::WalkDir,
+    walkdir::{DirEntry, WalkDir},
 };
 
 #[cfg(target_os = "linux")]
@@ -91,6 +91,15 @@ impl FileData {
     }
     fn set_hash(&mut self, hash: &mut String) {
         self.expected_hash = mem::take(hash);
+    }
+}
+
+impl TryFrom<DirEntry> for FileData {
+    type Error = HasherError;
+    fn try_from(entry: DirEntry) -> Result<Self, HasherError> {
+        let path = entry.path().to_path_buf();
+        let metadata = path.metadata()?;
+        Ok(FileData::new(metadata.len(), path, metadata.ino()))
     }
 }
 
@@ -157,6 +166,9 @@ impl From<std::io::Error> for HasherError {
 }
 
 use crate::HasherError::*;
+
+/// This is our primary object, and we can construct one for every
+/// root directory we want to inspect.
 #[derive(Debug, Clone)]
 pub struct Hasher {
     pool: ThreadPool,
@@ -171,13 +183,16 @@ pub struct Hasher {
 }
 
 impl Hasher {
-    // Public Interface Functions
+    /// Hasher constructor function - from the arguments, we take the algorithm,
+    /// the root directory to compute hashes on, the pattern of (if any) hash files
+    /// we need to parse, the (optional) path to our results log file, and the
+    /// number of concurrent jobs we will run.
     pub fn new(
         alg: HashAlg,
         root_dir: String,
         hashfile_pattern: String,
         logfile: Option<String>,
-        num_threads: Option<usize>,
+        jobs: Option<usize>,
     ) -> Result<Self, HasherError> {
         let hash_regex = Regex::new(&hashfile_pattern).map_err(|err| RegexError {
             why: format!("'{hashfile_pattern}' returns error {err}"),
@@ -191,7 +206,7 @@ impl Hasher {
             })?
             .get();
 
-        if let Some(total_threads) = num_threads {
+        if let Some(total_threads) = jobs {
             if total_threads > avail_threads {
                 warn!("[!] Only {avail_threads} threads available");
             } else {
@@ -219,9 +234,15 @@ impl Hasher {
         };
 
         let mp = MultiProgress::new();
-
+        const STACKSIZE_8MB: usize = 8 * 1024 * 1024;
         Ok(Hasher {
-            pool: ThreadPool::new(avail_threads),
+            // The debug version is likely allocating the
+            // hash buffer on the stack (instead of the Box on the heap)
+            // Give each thread a larger stack size
+            pool: threadpool::Builder::new()
+                .thread_stack_size(STACKSIZE_8MB)
+                .num_threads(avail_threads)
+                .build(),
             alg,
             root,
             hash_regex,
@@ -233,30 +254,28 @@ impl Hasher {
         })
     }
 
+    /// Once the Hasher object is constructed, we can then begin computation.
+    /// The --force option will force hash computation even if no hashfiles
+    /// match our pattern, and --verbose will print all results to STDOUT.
+    /// We can choose the order in which files will be computed: largest-first,
+    /// smallest-first, or in inode order (which may be faster for disk I/O)
     pub fn run(
         &mut self,
         force: bool,
         verbose: bool,
         sort_order: FileSortLogic,
     ) -> Result<(), HasherError> {
-        self.recursive_dir(force)?;
+        let file_vec = self.recursive_dir()?;
+        self.identify_hashfiles(file_vec, force)?;
         if let Err(err) = self.load_hashes() {
-            match force {
-                true => {
-                    warn!("[+] No valid hashfile, but --force flag set");
-                }
-                false => {
-                    return Err(err);
-                }
+            if force {
+                warn!("[+] No valid hashfile, but --force flag set");
+            } else {
+                return Err(err);
             }
-        };
+        }
         self.sort_checked_files(sort_order);
         self.start_hash_threads(force, verbose)?;
-        self.join()?;
-        Ok(())
-    }
-
-    fn join(&self) -> Result<(), HasherError> {
         self.pool.join();
         Ok(())
     }
@@ -320,7 +339,29 @@ impl Hasher {
         Ok(spinner)
     }
 
-    fn recursive_dir(&mut self, force: bool) -> Result<(), HasherError> {
+    fn identify_hashfiles(
+        &mut self,
+        file_vec: Vec<FileData>,
+        force: bool,
+    ) -> Result<(), HasherError> {
+        // Split the file vec into hash files and non-hashfiles
+        info!("[+] Identifying hashfiles");
+        (self.hashfiles, self.checkedfiles) = file_vec
+            .into_iter()
+            .partition(|f| path_matches_regex(&self.hash_regex, f.path()));
+        if self.hashfiles.is_empty() {
+            let reason = String::from("No hashfiles matched the hashfile pattern");
+            if force {
+                warn!("[-] {reason}");
+            } else {
+                return Err(RegexError { why: reason });
+            }
+        }
+        info!("[*] {} files in the queue", self.checkedfiles.len());
+        Ok(())
+    }
+
+    fn recursive_dir(&mut self) -> Result<Vec<FileData>, HasherError> {
         let mut file_vec = Vec::<FileData>::new();
 
         let spinner = self.create_spinner(format!("[+] Recursing through {:?}", self.root))?;
@@ -329,29 +370,11 @@ impl Hasher {
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
         {
-            let path = entry.path().to_path_buf();
-            let size = path.metadata()?.len();
-            let inode = path.metadata()?.ino();
-            file_vec.push(FileData::new(size, path, inode));
+            file_vec.push(FileData::try_from(entry)?);
             spinner.inc(1);
         }
         self.mp.remove(&spinner);
-
-        // Split the file vec into hash files and non-hashfiles
-        info!("[+] Identifying hashfiles");
-        (self.hashfiles, self.checkedfiles) = file_vec
-            .into_iter()
-            .partition(|f| path_matches_regex(&self.hash_regex, f.path()));
-        if self.hashfiles.is_empty() {
-            let reason = String::from("No hashfiles matched the hashfile pattern");
-            if !force {
-                return Err(RegexError { why: reason });
-            } else {
-                warn!("[-] {reason}");
-            }
-        }
-        info!("[*] {} files in the queue", self.checkedfiles.len());
-        Ok(())
+        Ok(file_vec)
     }
 
     fn sort_checked_files(&mut self, sort_order: FileSortLogic) {
@@ -374,6 +397,31 @@ impl Hasher {
         }
     }
 
+    fn spawn_single_job(
+        &mut self,
+        file_data: &FileData,
+        bar: &ProgressBar,
+        force: bool,
+        verbose: bool,
+    ) {
+        if let Some(mut v) = self.hashmap.remove(file_data.path()) {
+            let mut fd_clone = file_data.clone();
+            fd_clone.set_hash(&mut v);
+
+            // after this point, avoid more stdout/stderr prints
+            let alg = self.alg;
+            let mp = self.mp.clone();
+            let loghandle = self.loghandle.clone();
+            let bar = bar.clone();
+            self.pool.execute(move || {
+                perform_hash_threadfunc(fd_clone, alg, force, verbose, loghandle, mp, bar).ok();
+            });
+        } else if !force {
+            warn!("[!] {:?} => No hash found", file_data.path());
+            bar.inc(1);
+        }
+    }
+
     fn start_hash_threads(&mut self, force: bool, verbose: bool) -> Result<usize, HasherError> {
         info!(
             "[+] Checking hashes - spinning up {} worker threads",
@@ -388,28 +436,9 @@ impl Hasher {
         let bar = self
             .mp
             .add(ProgressBar::new(num_files as u64).with_style(style));
-        while let Some(mut ck) = self.checkedfiles.pop() {
-            match self.hashmap.remove(ck.path()) {
-                Some(mut v) => {
-                    ck.set_hash(&mut v);
-                }
-                None => {
-                    if !force {
-                        warn!("[!] {:?} => No hash found", ck.path());
-                        bar.inc(1);
-                        continue;
-                    }
-                }
-            };
-            let alg = self.alg;
-            let loghandle = self.loghandle.clone();
-            // after this point, avoid more stdout/stderr prints
-            let mp = self.mp.clone();
-            let bar = bar.clone();
-            self.pool.execute(move || {
-                perform_hash_threadfunc(ck, alg, force, verbose, loghandle, mp, bar).ok();
-            });
-        } // end while
+        while let Some(ck) = self.checkedfiles.pop() {
+            self.spawn_single_job(&ck, &bar, force, verbose);
+        }
         Ok(num_files)
     }
 }
@@ -446,19 +475,19 @@ fn canonicalize_split_filepath(
     hashpath: &Path,
 ) -> Result<PathBuf, HasherError> {
     let file_path = splitline[1..].join(" ");
-
     let mut file_path_buf: PathBuf = Path::new(&file_path).to_path_buf();
     if file_path_buf.is_absolute() {
-        return Ok(file_path_buf);
+        Ok(file_path_buf)
+    } else {
+        if !file_path.starts_with("./") {
+            let new_file_path: String = format!("./{file_path}");
+            file_path_buf = Path::new(&new_file_path).to_path_buf();
+        }
+        file_path_buf = hashpath.join(&file_path_buf);
+        let canonical_result =
+            canonicalize_path(&file_path_buf.display().to_string(), FileType::IsFile)?;
+        Ok(canonical_result)
     }
-    if !file_path.starts_with("./") {
-        let new_file_path: String = format!("./{file_path}");
-        file_path_buf = Path::new(&new_file_path).to_path_buf();
-    }
-    file_path_buf = hashpath.join(&file_path_buf);
-    let canonical_result =
-        canonicalize_path(&file_path_buf.display().to_string(), FileType::IsFile)?;
-    Ok(canonical_result)
 }
 
 #[cfg(target_os = "linux")]
@@ -469,13 +498,8 @@ const SIZE_2MB: usize = 1024 * 1024 * 2; // 2 MB
 const SIZE_128MB: usize = 1024 * 1024 * 128;
 const O_DIRECT: i32 = 0x4000; // Linux
 
-fn hash_file(
-    path: &PathBuf,
-    file_size: u64,
-    alg: HashAlg,
-    mp: &MultiProgress,
-) -> Result<String, HasherError> {
-    let mut hasher = select_hasher(alg);
+fn hash_file(fdata: &FileData, alg: HashAlg, mp: &MultiProgress) -> Result<String, HasherError> {
+    let mut hasher: Box<dyn DynDigest> = select_hasher(alg);
 
     #[cfg(not(target_os = "linux"))]
     let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
@@ -487,14 +511,14 @@ fn hash_file(
         "[{elapsed_precise}] {bar:40.cyan/blue} ({percent:2}%) {msg}",
     )?
     .progress_chars("##-");
-    let bar = mp.add(ProgressBar::new(file_size).with_style(style));
+    let bar = mp.add(ProgressBar::new(fdata.size()).with_style(style));
 
     // This is dumb, but the only way to get a valid, borrowable reference in Rust;
     // we have to add - then remove - the progress bar because we want the bar
     // only to display if files are larger than 128MB
-    let display_bar: bool = file_size > SIZE_128MB as u64;
+    let display_bar: bool = fdata.size() > SIZE_128MB as u64;
     if display_bar {
-        bar.set_message(format!("{:?}", path.file_name().unwrap()));
+        bar.set_message(format!("{:?}", fdata.path().file_name().unwrap()));
     } else {
         mp.remove(&bar);
     }
@@ -502,7 +526,7 @@ fn hash_file(
     let mut file = OpenOptions::new()
         .read(true)
         .custom_flags(O_DIRECT)
-        .open(path)?;
+        .open(fdata.path())?;
     loop {
         let read_count: usize;
         #[cfg(target_os = "linux")]
@@ -527,6 +551,7 @@ fn hash_file(
         bar.finish_and_clear();
         mp.remove(&bar);
     }
+    drop(bar);
 
     Ok(hex::encode(hasher.finalize()))
 }
@@ -574,7 +599,7 @@ fn perform_hash_threadfunc(
     total_progress: ProgressBar, // is already an Arc
 ) -> Result<(), HasherError> {
     total_progress.inc(1);
-    let actual_hash = hash_file(fdata.path(), fdata.size(), alg, &mp)?;
+    let actual_hash = hash_file(&fdata, alg, &mp)?;
     if force {
         let result = format!(
             "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}\n",
@@ -609,6 +634,9 @@ fn perform_hash_threadfunc(
     Ok(())
 }
 
+// Clippy would prefer a better default() invocation, but
+// that is waaaayyy too verbose. Suppress for this function
+#[allow(clippy::box_default)]
 fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
     match alg {
         HashAlg::MD5 => Box::new(md5::Md5::default()),
@@ -626,15 +654,16 @@ fn split_hashfile_line(
 ) -> Result<(String, PathBuf), HasherError> {
     let splitline: Vec<&str> = newline.split_whitespace().collect();
     if splitline.len() < 2 {
-        return Err(ParseError {
+        Err(ParseError {
             why: format!("Line does not have enough elements: {newline}"),
-        });
+        })
+    } else {
+        let hashval: &str = splitline[0];
+        //alternate - !HEXSTRING_PATTERN.is_match(hashval), maybe someday
+        validate_hexstring(hashval)?;
+        let canonical_path = canonicalize_split_filepath(&splitline, hashpath)?;
+        Ok((String::from(hashval), canonical_path))
     }
-    let hashval: &str = splitline[0];
-    //if !HEXSTRING_PATTERN.is_match(hashval) {
-    validate_hexstring(hashval)?;
-    let canonical_path = canonicalize_split_filepath(&splitline, hashpath)?;
-    Ok((String::from(hashval), canonical_path))
 }
 
 fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
