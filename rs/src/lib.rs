@@ -615,7 +615,10 @@ fn perform_hash_threadfunc(
             fdata.path(),
             actual_hash
         );
-        mp.println(&result).ok();
+        // omitting zero-length hashes from console print in FORCE mode
+        if fdata.size() > 0 {
+            mp.println(&result).ok();
+        }
         write_to_log(&result, &loghandle);
     } else {
         // Compare
