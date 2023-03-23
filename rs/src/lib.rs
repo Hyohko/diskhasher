@@ -434,6 +434,10 @@ impl Hasher {
             .add(ProgressBar::new(num_files as u64).with_style(style));
         while let Some(ck) = self.checkedfiles.pop() {
             self.spawn_single_job(&ck, &bar, force, verbose);
+            // every 1000 hashes, shrink the memory space of the hashmap
+            if num_files % 1000 == 0 {
+                self.hashmap.shrink_to_fit();
+            }
         }
         Ok(num_files)
     }
