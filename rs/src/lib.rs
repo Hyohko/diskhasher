@@ -295,7 +295,7 @@ impl Hasher {
             })?;
 
             let reader = BufReader::new(file);
-            for line in reader.lines() {
+            for line in spinner.wrap_iter(reader.lines()) {
                 let newline = line?;
                 match split_hashfile_line(&newline, &hashpath) {
                     Ok(v) => self.hashmap.insert(v.0, v.1),
@@ -305,7 +305,6 @@ impl Hasher {
                     }
                 };
                 total_lines += 1;
-                spinner.inc(1);
             }
         }
         self.mp.remove(&spinner);
@@ -361,13 +360,12 @@ impl Hasher {
         let mut file_vec = Vec::<FileData>::new();
 
         let spinner = self.create_spinner(format!("[+] Recursing through {:?}", self.root))?;
-        for entry in WalkDir::new(&self.root)
-            .into_iter()
+        for entry in spinner
+            .wrap_iter(WalkDir::new(&self.root).into_iter())
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
         {
             file_vec.push(FileData::try_from(entry)?);
-            spinner.inc(1);
         }
         self.mp.remove(&spinner);
         Ok(file_vec)
@@ -400,22 +398,22 @@ impl Hasher {
         force: bool,
         verbose: bool,
     ) {
+        let mut fd_clone = file_data.clone();
         if let Some(mut v) = self.hashmap.remove(file_data.path()) {
-            let mut fd_clone = file_data.clone();
             fd_clone.set_hash(&mut v);
-
-            // after this point, avoid more stdout/stderr prints
-            let alg = self.alg;
-            let mp = self.mp.clone();
-            let loghandle = self.loghandle.clone();
-            let bar = bar.clone();
-            self.pool.execute(move || {
-                perform_hash_threadfunc(fd_clone, alg, force, verbose, loghandle, mp, bar).ok();
-            });
         } else if !force {
             warn!("[!] {:?} => No hash found", file_data.path());
             bar.inc(1);
+            return;
         }
+        // after this point, avoid more stdout/stderr prints
+        let alg = self.alg;
+        let mp = self.mp.clone();
+        let loghandle = self.loghandle.clone();
+        let bar = bar.clone();
+        self.pool.execute(move || {
+            perform_hash_threadfunc(fd_clone, alg, force, verbose, loghandle, mp, bar).ok();
+        });
     }
 
     fn start_hash_threads(&mut self, force: bool, verbose: bool) -> Result<usize, HasherError> {
@@ -599,8 +597,8 @@ fn perform_hash_threadfunc(
     mp: MultiProgress,           // is already an Arc
     total_progress: ProgressBar, // is already an Arc
 ) -> Result<(), HasherError> {
-    total_progress.inc(1);
     let actual_hash = hash_file(&fdata, alg, &mp)?;
+    total_progress.inc(1);
     let result: String;
     if force {
         result = format!(
