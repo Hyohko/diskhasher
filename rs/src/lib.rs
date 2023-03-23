@@ -284,7 +284,6 @@ impl Hasher {
         self.hashmap.reserve(self.checkedfiles.len());
 
         let spinner = self.create_spinner(String::from("[+] Parsing hashes from hashfiles"))?;
-        let mut total_lines: i32 = 0;
         for f in &self.hashfiles {
             let mut hashpath = f.path().clone();
             hashpath.pop();
@@ -304,10 +303,8 @@ impl Hasher {
                         continue;
                     }
                 };
-                total_lines += 1;
             }
         }
-        self.mp.remove(&spinner);
 
         self.hashmap.shrink_to_fit();
         if self.hashmap.is_empty() {
@@ -315,7 +312,8 @@ impl Hasher {
                 why: String::from("No hashes read from hashfiles"),
             })
         } else {
-            info!("[*] {total_lines} hashes read from all hashfiles");
+            info!("[*] {} hashes read from all hashfiles", spinner.position());
+            self.mp.remove(&spinner);
             Ok(())
         }
     }
@@ -372,7 +370,9 @@ impl Hasher {
     }
 
     fn sort_checked_files(&mut self, sort_order: FileSortLogic) {
-        // actual testing indicates that the Reverse sort order puts smallest first, for some reason...
+        // since we are popping off the last element of the vec to process it, in the instance
+        // of Largest-First hashing, the largest needs to be at the end of the vec, and
+        // vice versa for smallest.
         match sort_order {
             FileSortLogic::InodeOrder => {
                 info!("[*] Sorting files by inode");
@@ -432,9 +432,10 @@ impl Hasher {
             .add(ProgressBar::new(num_files as u64).with_style(style));
         while let Some(ck) = self.checkedfiles.pop() {
             self.spawn_single_job(&ck, &bar, force, verbose);
-            // every 1000 hashes, shrink the memory space of the hashmap
-            if num_files % 1000 == 0 {
+            // every 5000 hashes, shrink the memory space of the hashmap
+            if num_files % 5000 == 0 {
                 self.hashmap.shrink_to_fit();
+                self.checkedfiles.shrink_to_fit();
             }
         }
         Ok(num_files)
