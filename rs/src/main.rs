@@ -29,7 +29,7 @@ extern crate log;
 
 use {
     clap::Parser,
-    diskhasher::{FileSortLogic, HashAlg, Hasher, HasherError},
+    diskhasher::{FileSortLogic, HashAlg, Hasher},
     log::LevelFilter,
 };
 
@@ -68,7 +68,7 @@ struct Arguments {
     pub jobs: Option<usize>,
 }
 
-fn main() -> Result<(), HasherError> {
+fn main() {
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Info)
         .init();
@@ -79,24 +79,22 @@ fn main() -> Result<(), HasherError> {
         .clone()
         .unwrap_or(String::from("NO_VALID_PATTERN"));
 
-    let mut myhasher = Hasher::new(
+    let mut myhasher = match Hasher::new(
         args.algorithm,
         args.directory.clone(),
         pattern,
         args.logfile,
         args.jobs,
-    )?;
-    /*{
+    ) {
         Ok(v) => v,
         Err(err) => {
             error!("[!] Hasher constructor error => {err}");
-            return Err(err);
+            return;
         }
-    };*/
+    };
     if let Err(err) = myhasher.run(args.force, args.verbose, args.sorting) {
         error!("[!] Hasher runtime failure => {err}");
-        return Err(err);
+        return;
     };
     info!("[+] Done");
-    Ok(())
 }
