@@ -26,7 +26,6 @@
 
 use {
     crate::HasherError,
-    crate::HasherError::{FileError, ParseError},
     std::fs,
     std::path::{Path, PathBuf},
 };
@@ -49,7 +48,7 @@ fn canonicalize_split_filepath(
         if file_path_buf.is_file() {
             Ok(file_path_buf)
         } else {
-            Err(FileError {
+            Err(HasherError::File {
                 why: String::from("Path is not a valid regular file"),
                 path: file_path_buf.display().to_string(),
             })
@@ -82,7 +81,7 @@ pub fn split_hashfile_line(
 ) -> Result<(PathBuf, String), HasherError> {
     let splitline: Vec<&str> = newline.split_whitespace().collect();
     if splitline.len() < 2 {
-        Err(ParseError {
+        Err(HasherError::Parse {
             why: format!("Line does not have enough elements: {newline}"),
         })
     } else {
@@ -99,14 +98,14 @@ pub fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
         32 | 40 | 56 | 64 | 96 | 128 => {
             for chr in hexstring.chars() {
                 if !chr.is_ascii_hexdigit() {
-                    return Err(ParseError {
+                    return Err(HasherError::Parse {
                         why: String::from("Non-hex character found"),
                     });
                 }
             }
             Ok(())
         }
-        _ => Err(ParseError {
+        _ => Err(HasherError::Parse {
             why: format!("Bad hexstring length: {}", hexstring.len()),
         }),
     }

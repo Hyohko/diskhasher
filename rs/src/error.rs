@@ -26,20 +26,18 @@
 use {custom_error::custom_error, indicatif::style::TemplateError};
 
 custom_error! {pub HasherError
-    RegexError{why: String} = "Regular expression failed => {why}",
-    FileError{path: String, why: String} = "File/Directory error => '{path}': {why}",
-    HashError{why: String} = "Hash error => {why}",
-    ThreadingError{why: String} = "Thread operation failed => {why}",
-    ParseError{why: String} = "Parse error => {why}",
-    IoError{why: String} = "IO Failure => {why}",
-    StyleError{why: String} = "ProgressBar style error => {why}",
-    IntegerError{why: String} = "Integer conversion error => {why}",
-    AllocationError{why: String} = "Allocation failure => {why}"
+    Regex{why: String} = "Regular expression failed => {why}",
+    File{path: String, why: String} = "File/Directory error => '{path}': {why}",
+    Hash{why: String} = "Hash error => {why}",
+    Threading{why: String} = "Thread operation failed => {why}",
+    Parse{why: String} = "Parse error => {why}",
+    Io{why: String} = "IO Failure => {why}",
+    Style{why: String} = "ProgressBar style error => {why}",
 }
 
 impl From<TemplateError> for HasherError {
     fn from(error: TemplateError) -> Self {
-        HasherError::StyleError {
+        HasherError::Style {
             why: format!("{error:?}"),
         }
     }
@@ -48,7 +46,7 @@ impl From<TemplateError> for HasherError {
 // todo https://stackoverflow.com/questions/53934888/how-to-include-the-file-path-in-an-io-error-in-rust
 impl From<std::io::Error> for HasherError {
     fn from(error: std::io::Error) -> Self {
-        HasherError::IoError {
+        HasherError::Io {
             why: format!("{:?} => {error:?}", error.kind()),
         }
     }
