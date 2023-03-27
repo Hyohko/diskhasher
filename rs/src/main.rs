@@ -58,7 +58,8 @@ struct Arguments {
     pub verbose: bool,
     /// File sorting order
     #[clap(short, long)]
-    #[arg(value_enum, default_value_t=FileSortLogic::InodeOrder)]
+    #[cfg_attr(linux, arg(value_enum, default_value_t=FileSortLogic::InodeOrder))]
+    #[cfg_attr(windows, arg(value_enum, default_value_t=FileSortLogic::LargestFirst))]
     pub sorting: FileSortLogic,
     /// Regex pattern used to identify hashfiles
     #[clap(short, long)]

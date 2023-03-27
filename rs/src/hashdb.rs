@@ -57,6 +57,25 @@ fn canonicalize_split_filepath(
     }
 }
 
+/*use lazy_static::lazy_static;
+lazy_static! {
+    static ref HEXSTRING_PATTERN: Regex = hash_hexpattern();
+}
+
+fn hash_hexpattern() -> Regex {
+    const STR_REGEX: &str = concat!(
+        r"([[:xdigit:]]{32})|", // MD5
+        r"([[:xdigit:]]{40})|", // SHA1
+        r"([[:xdigit:]]{56})|", // SHA224
+        r"([[:xdigit:]]{64})|", // SHA256
+        r"([[:xdigit:]]{96})|", // SHA384
+        r"([[:xdigit:]]{128})", // SHA512
+    );
+    // As this regex is initialized at process startup, panic instead
+    // of returning an error
+    Regex::new(STR_REGEX).expect("[!] Regular expression engine startup failure")
+}*/
+
 pub fn split_hashfile_line(
     newline: &String,
     hashpath: &Path,
@@ -75,9 +94,8 @@ pub fn split_hashfile_line(
     }
 }
 
-fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
-    let hexlen = hexstring.len();
-    match hexlen {
+pub fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
+    match hexstring.len() {
         32 | 40 | 56 | 64 | 96 | 128 => {
             for chr in hexstring.chars() {
                 if !chr.is_ascii_hexdigit() {
@@ -89,7 +107,7 @@ fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
             Ok(())
         }
         _ => Err(ParseError {
-            why: format!("Bad hexstring length: {hexlen}"),
+            why: format!("Bad hexstring length: {}", hexstring.len()),
         }),
     }
 }
