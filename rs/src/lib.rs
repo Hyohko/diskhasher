@@ -31,7 +31,7 @@ extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
-use crate::{error::HasherError, error::HasherError::*, filedata::FileData, hashdb::*};
+use crate::{error::HasherError, filedata::FileData, hashdb::*};
 
 use {
     clap::ValueEnum,
@@ -122,20 +122,20 @@ impl Hasher {
         logfile: Option<String>,
         jobs: Option<usize>,
     ) -> Result<Self, HasherError> {
-        let hash_regex = Regex::new(&hashfile_pattern).map_err(|err| RegexError {
+        let hash_regex = Regex::new(&hashfile_pattern).map_err(|err| HasherError::Regex {
             why: format!("'{hashfile_pattern}' returns error {err}"),
         })?;
 
         let root = fs::canonicalize(Path::new(&root_dir))?;
         if !root.is_dir() {
-            return Err(FileError {
+            return Err(HasherError::File {
                 why: String::from("Path is not a valid directory"),
                 path: root.display().to_string(),
             });
         }
 
         let mut avail_threads = thread::available_parallelism()
-            .map_err(|err| ThreadingError {
+            .map_err(|err| HasherError::Threading {
                 why: format!("{err}: Couldn't get number of available threads"),
             })?
             .get();
@@ -220,7 +220,7 @@ impl Hasher {
             let mut hashpath = f.path().clone();
             hashpath.pop();
 
-            let file = File::open(f.path()).map_err(|err| FileError {
+            let file = File::open(f.path()).map_err(|err| HasherError::File {
                 why: format!("{err} : Hashfile cannot be opened"),
                 path: f.path_string(),
             })?;
@@ -240,7 +240,7 @@ impl Hasher {
 
         self.hashmap.shrink_to_fit();
         if self.hashmap.is_empty() {
-            Err(HashError {
+            Err(HasherError::Hash {
                 why: String::from("No hashes read from hashfiles"),
             })
         } else {
@@ -279,7 +279,7 @@ impl Hasher {
             if force {
                 warn!("[-] {reason}");
             } else {
-                return Err(RegexError { why: reason });
+                return Err(HasherError::Regex { why: reason });
             }
         }
         info!("[*] {} files in the queue", self.checkedfiles.len());
@@ -510,7 +510,7 @@ fn perform_hash_threadfunc(
         if fdata.size() > 0 {
             mp.println(&result).ok();
         }
-        filelog!(&result, &loghandle);
+        filelog!(result, loghandle);
     } else {
         // Compare
         if fdata.hash() == &actual_hash {
@@ -521,7 +521,7 @@ fn perform_hash_threadfunc(
                     actual_hash
                 );
                 mp.println(&result).ok();
-                filelog!(&result, &loghandle);
+                filelog!(result, loghandle);
             }
         } else {
             result = format!(
@@ -531,7 +531,7 @@ fn perform_hash_threadfunc(
                 actual_hash
             );
             mp.println(&result).ok();
-            filelog!(&result, &loghandle);
+            filelog!(result, loghandle);
         }
     }
     Ok(())
