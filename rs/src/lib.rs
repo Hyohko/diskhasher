@@ -286,7 +286,7 @@ impl Hasher {
         Ok(())
     }
 
-    fn recursive_dir(&mut self) -> Result<Vec<FileData>, HasherError> {
+    /*fn recursive_dir_deprecated(&mut self) -> Result<Vec<FileData>, HasherError> {
         let mut file_vec = Vec::<FileData>::new();
 
         let spinner = self.create_spinner(format!("[+] Recursing through {:?}", self.root))?;
@@ -297,6 +297,19 @@ impl Hasher {
         {
             file_vec.push(FileData::try_from(entry)?);
         }
+        self.mp.remove(&spinner);
+        Ok(file_vec)
+    }*/
+
+    fn recursive_dir(&mut self) -> Result<Vec<FileData>, HasherError> {
+        let spinner = self.create_spinner(format!("[+] Recursing through {:?}", self.root))?;
+        let file_vec: Vec<FileData> = spinner
+            .wrap_iter(WalkDir::new(&self.root).into_iter())
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+            .map(|e| FileData::try_from(e))
+            .filter_map(Result::ok)
+            .collect();
         self.mp.remove(&spinner);
         Ok(file_vec)
     }
