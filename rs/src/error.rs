@@ -7,7 +7,9 @@ custom_error! {pub HasherError
     ThreadingError{why: String} = "Thread operation failed => {why}",
     ParseError{why: String} = "Parse error => {why}",
     IoError{why: String} = "IO Failure => {why}",
-    StyleError{why: String} = "ProgressBar style error => {why}"
+    StyleError{why: String} = "ProgressBar style error => {why}",
+    IntegerError{why: String} = "Integer conversion error => {why}",
+    AllocationError{why: String} = "Allocation failure => {why}"
 }
 
 impl From<TemplateError> for HasherError {

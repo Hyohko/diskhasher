@@ -419,12 +419,13 @@ fn hash_file(fdata: &FileData, alg: HashAlg, mp: &MultiProgress) -> Result<Strin
     let mut hasher: Box<dyn DynDigest> = hashobj!(alg);
     let mut read_count: usize;
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     let mut buffer = vec![0_u8; SIZE_2MB].into_boxed_slice();
     #[cfg(target_os = "linux")]
-    let mut buffer = AlignedBox::<[u8]>::slice_from_value(ALIGNMENT, SIZE_2MB, 0_u8).unwrap();
+    let mut buffer = AlignedBox::<[u8]>::slice_from_value(ALIGNMENT, SIZE_2MB, 0_u8)
+        .expect("Heap read buffer allocation failed, panic");
 
-    // todo!("Cross-compile for other OSes and find the OpenOptions variants that are appropriate");
+    // the unwrap will not fail if you don't monkey with the constants that make up O_FLAGS
     let mut file = OpenOptions::new()
         .read(true)
         .custom_flags(O_FLAGS.try_into().unwrap())

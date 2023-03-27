@@ -70,6 +70,9 @@ struct Arguments {
 }
 
 fn main() {
+    if !(cfg!(windows) || cfg!(linux)) {
+        panic!("Unsupported operating system")
+    }
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Info)
         .init();
