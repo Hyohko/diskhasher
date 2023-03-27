@@ -24,21 +24,7 @@
     <https://www.gnu.org/licenses/>.
 */
 
-mod canonicalize_path {
-    use crate::*;
-
-    #[test]
-    fn file_notexist() {
-        let badfile: String = "./doesnotexist.txt".to_string();
-        assert!(canonicalize_path(&badfile, FileType::IsFile).is_err());
-    }
-
-    #[test]
-    fn dir_notexist() {
-        let badfile: String = "./doesnotexist/".to_string();
-        assert!(canonicalize_path(&badfile, FileType::IsDir).is_err());
-    }
-}
+mod canonicalize_path {}
 
 mod path_matches_regex {
     use crate::*;
@@ -135,7 +121,7 @@ mod splitline {
             let hashpath: PathBuf = PathBuf::new();
             let result = split_hashfile_line(&case, &hashpath);
             assert!(result.is_ok());
-            assert_eq!(result.unwrap().1, good_path_display);
+            assert_eq!(result.unwrap().0, good_path_display);
         }
     }
 }
@@ -171,7 +157,7 @@ mod implements_traits {
 }
 
 mod validate_hexstring {
-    use crate::*;
+    use crate::hashdb::validate_hexstring;
 
     #[test]
     fn good_input() {
@@ -191,7 +177,7 @@ mod validate_hexstring {
     #[test]
     fn bad_input() {
         let bad_strings: [&str; 6] = [
-            "",                                          // zero lengtu
+            "",                                          // zero length
             "abcdef1234567890abcdef1234567890aabbccd",   // one too short
             "abcdef1234567890abcdef1234567890aabbccdda", // one too long
             "abcdef1234567890abc ef1234567890aabbccdd",  // space in the middle

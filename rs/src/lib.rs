@@ -23,117 +23,42 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
-#![warn(
-    clippy::all,
-    clippy::restriction,
-    clippy::pedantic,
-    clippy::nursery,
-    clippy::cargo
-)]
-// todo!("remove these lints before merge");
+mod error;
+mod filedata;
+mod hashdb;
 
 extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
+use crate::{error::HasherError, error::HasherError::*, filedata::FileData, hashdb::*};
+
 use {
-    aligned_box::AlignedBox,
     clap::ValueEnum,
-    custom_error::custom_error,
     digest::DynDigest,
-    indicatif::style::TemplateError,
     indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle},
     regex::Regex,
     std::cmp::Reverse,
     std::collections::HashMap,
     std::fmt::{self, Display, Formatter},
     std::fs,
-    std::fs::File,
+    std::fs::{File, OpenOptions},
     std::io::{BufRead, BufReader, Read, Write},
-    std::mem,
     std::path::{Path, PathBuf},
     std::sync::{Arc, Mutex},
     std::thread,
     std::time::Duration,
     threadpool::ThreadPool,
-    walkdir::{DirEntry, WalkDir},
+    walkdir::WalkDir,
 };
 
 #[cfg(target_os = "linux")]
-use std::{
-    fs::OpenOptions,
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
-};
+use aligned_box::AlignedBox;
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::OpenOptionsExt;
 
-/// Internal structure that tracks files being sent to the
-/// hasher thread pool
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct FileData {
-    size: u64,
-    path: PathBuf,
-    inode: u64,
-    expected_hash: String,
-}
-
-impl FileData {
-    /// FileData constructor
-    fn new(size: u64, path: PathBuf, inode: u64) -> Self {
-        Self {
-            size,
-            path,
-            inode,
-            expected_hash: String::new(),
-        }
-    }
-    /// Size of referenced file
-    fn size(&self) -> u64 {
-        self.size
-    }
-    /// Path to referenced file
-    fn path(&self) -> &PathBuf {
-        &self.path
-    }
-    /// [linux] Inode of referenced file
-    fn inode(&self) -> u64 {
-        self.inode
-    }
-    /// File path as a string for debug prints
-    fn path_string(&self) -> String {
-        self.path.display().to_string()
-    }
-    /// Cryptographic hash as hexstring
-    fn hash(&self) -> &String {
-        &self.expected_hash
-    }
-    /// Permits setting of the hash value during computation
-    fn set_hash(&mut self, hash: &mut String) {
-        self.expected_hash = mem::take(hash);
-    }
-}
-
-impl TryFrom<DirEntry> for FileData {
-    type Error = HasherError;
-    fn try_from(entry: DirEntry) -> Result<Self, HasherError> {
-        let path = entry.path().to_path_buf();
-        let metadata = path.metadata()?;
-        Ok(Self::new(metadata.len(), path, metadata.ino()))
-    }
-}
-
-/// Internal file type for path canonicalization
-enum FileType {
-    IsDir,
-    IsFile,
-}
-
-/// Option to command line args - sort files from WalkDir
-/// by LargestFirst, SmallestFirst, or in InodeOrder
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum FileSortLogic {
-    LargestFirst,
-    SmallestFirst,
-    InodeOrder,
-}
+#[cfg(target_os = "windows")]
+use std::os::windows::fs::OpenOptionsExt;
 
 /// Supported hash algorithms
 #[non_exhaustive]
@@ -160,34 +85,15 @@ impl Display for HashAlg {
     }
 }
 
-custom_error! {pub HasherError
-    RegexError{why: String} = "Regular expression failed => {why}",
-    FileError{path: String, why: String} = "File/Directory error => '{path}': {why}",
-    HashError{why: String} = "Hash error => {why}",
-    ThreadingError{why: String} = "Thread operation failed => {why}",
-    ParseError{why: String} = "Parse error => {why}",
-    IoError{why: String} = "IO Failure => {why}",
-    StyleError{why: String} = "ProgressBar style error => {why}"
+/// Option to command line args - sort files from WalkDir
+/// by LargestFirst, SmallestFirst, or in InodeOrder
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum FileSortLogic {
+    LargestFirst,
+    SmallestFirst,
+    #[cfg(target_os = "linux")]
+    InodeOrder,
 }
-
-impl From<TemplateError> for HasherError {
-    fn from(error: TemplateError) -> Self {
-        StyleError {
-            why: format!("{error:?}"),
-        }
-    }
-}
-
-// todo https://stackoverflow.com/questions/53934888/how-to-include-the-file-path-in-an-io-error-in-rust
-impl From<std::io::Error> for HasherError {
-    fn from(error: std::io::Error) -> Self {
-        HasherError::IoError {
-            why: format!("{:?} => {error:?}", error.kind()),
-        }
-    }
-}
-
-use crate::HasherError::*;
 
 /// This is our primary object, and we can construct one for every
 /// root directory we want to inspect.
@@ -216,12 +122,17 @@ impl Hasher {
         logfile: Option<String>,
         jobs: Option<usize>,
     ) -> Result<Self, HasherError> {
-        const STACKSIZE_8MB: usize = 8 * 1024 * 1024;
         let hash_regex = Regex::new(&hashfile_pattern).map_err(|err| RegexError {
             why: format!("'{hashfile_pattern}' returns error {err}"),
         })?;
 
-        let root = canonicalize_path(&root_dir, &FileType::IsDir)?;
+        let root = fs::canonicalize(Path::new(&root_dir))?;
+        if !root.is_dir() {
+            return Err(FileError {
+                why: String::from("Path is not a valid directory"),
+                path: root.display().to_string(),
+            });
+        }
 
         let mut avail_threads = thread::available_parallelism()
             .map_err(|err| ThreadingError {
@@ -229,13 +140,14 @@ impl Hasher {
             })?
             .get();
 
-        if let Some(total_threads) = jobs {
+        avail_threads = if let Some(total_threads) = jobs {
             if total_threads > avail_threads {
                 warn!("[!] Only {avail_threads} threads available");
+                avail_threads
             } else {
-                avail_threads = total_threads;
+                info!("[+] Allocating {total_threads} worker threads in the thread pool");
+                total_threads
             }
-            info!("[+] Allocating {avail_threads} worker threads in the thread pool");
         } else {
             // cap total running threads at the num of cores or 12 threads (which is plenty),
             // whatever is smaller. Much larger than this and it screws
@@ -243,7 +155,8 @@ impl Hasher {
             // own feet in the if let above.
             avail_threads = std::cmp::min(avail_threads, 12);
             info!("[+] Defaulting to {avail_threads} worker threads, use '--jobs' arg to change");
-        }
+            avail_threads
+        };
 
         // As much as I hate this construction, there's no more efficient
         // way to make it idiomatic Rust
@@ -256,13 +169,10 @@ impl Hasher {
             None => None,
         };
 
+        // .thread_stack_size(STACKSIZE_8MB) // change stack size only if necessary
         let mp = MultiProgress::new();
         Ok(Self {
-            // The debug version is likely allocating the
-            // hash buffer on the stack (instead of the Box on the heap)
-            // Give each thread a larger stack size
             pool: threadpool::Builder::new()
-                .thread_stack_size(STACKSIZE_8MB)
                 .num_threads(avail_threads)
                 .build(),
             alg,
@@ -396,6 +306,7 @@ impl Hasher {
         // of Largest-First hashing, the largest needs to be at the end of the vec, and
         // vice versa for smallest.
         match sort_order {
+            #[cfg(target_os = "linux")]
             FileSortLogic::InodeOrder => {
                 info!("[*] Sorting files by inode");
                 self.checkedfiles
@@ -423,13 +334,12 @@ impl Hasher {
         let mut fd_clone = file_data.clone();
         if let Some(mut v) = self.hashmap.remove(file_data.path()) {
             fd_clone.set_hash(&mut v);
-        } else {
-            if !force {
-                warn!("[!] {:?} => No hash found", file_data.path());
-                bar.inc(1);
-                return;
-            }
+        } else if !force {
+            warn!("[!] {:?} => No hash found", file_data.path());
+            bar.inc(1);
+            return;
         }
+
         // after this point, avoid more stdout/stderr prints
         let alg = self.alg;
         let mp = self.mp.clone();
@@ -440,7 +350,7 @@ impl Hasher {
         });
     }
 
-    fn start_hash_threads(&mut self, force: bool, verbose: bool) -> Result<usize, HasherError> {
+    fn start_hash_threads(&mut self, force: bool, verbose: bool) -> Result<(), HasherError> {
         info!(
             "[+] Checking hashes - spinning up {} worker threads",
             self.pool.max_count()
@@ -462,62 +372,37 @@ impl Hasher {
                 self.checkedfiles.shrink_to_fit();
             }
         }
-        Ok(num_files)
+        Ok(())
     }
 }
 
-// Static Functions
-fn canonicalize_path(path: &String, filetype: &FileType) -> Result<PathBuf, HasherError> {
-    let root_path = fs::canonicalize(Path::new(&path))?;
-    match filetype {
-        FileType::IsDir => {
-            if root_path.is_dir() {
-                Ok(root_path)
-            } else {
-                Err(FileError {
-                    why: String::from("Path is not a valid directory"),
-                    path: root_path.display().to_string(),
-                })
-            }
-        }
-        FileType::IsFile => {
-            if root_path.is_file() {
-                Ok(root_path)
-            } else {
-                Err(FileError {
-                    why: String::from("Path is not a valid file"),
-                    path: root_path.display().to_string(),
-                })
-            }
-        }
-    }
-}
-
-fn canonicalize_split_filepath(
-    splitline: &[&str],
-    hashpath: &Path,
-) -> Result<PathBuf, HasherError> {
-    let file_path = splitline[1..].join(" ");
-    let mut file_path_buf: PathBuf = Path::new(&file_path).to_path_buf();
-    if file_path_buf.is_absolute() {
-        Ok(file_path_buf)
-    } else {
-        if !file_path.starts_with("./") {
-            let new_file_path: String = format!("./{file_path}");
-            file_path_buf = Path::new(&new_file_path).to_path_buf();
-        }
-        file_path_buf = hashpath.join(&file_path_buf);
-        let canonical_result =
-            canonicalize_path(&file_path_buf.display().to_string(), &FileType::IsFile)?;
-        Ok(canonical_result)
-    }
-}
-
-const SIZE_2MB: usize = 1024 * 1024 * 2; // 2 MB
+/// (2) MiB
+const SIZE_2MB: usize = 1024 * 1024 * 2;
+/// (128) MiB
 const SIZE_128MB: usize = 1024 * 1024 * 128;
-const O_DIRECT: i32 = 0x4000; // Linux
-const ALIGNMENT: usize = 0x1000; //4096
 
+/// Buffer alignment for Direct I/O - one page (4096 bytes)
+#[cfg(target_os = "linux")]
+const ALIGNMENT: usize = 0x1000;
+
+/// The Linux flag for Direct I/O
+#[cfg(target_os = "linux")]
+const O_DIRECT: u32 = 0x4000;
+#[cfg(target_os = "linux")]
+const O_SEQUENTIAL: u32 = 0;
+#[cfg(target_os = "linux")]
+const O_BINARY: u32 = 0;
+
+#[cfg(target_os = "windows")]
+const O_DIRECT: u32 = 0;
+#[cfg(target_os = "windows")]
+const O_SEQUENTIAL: u32 = 0x0020;
+#[cfg(target_os = "windows")]
+const O_BINARY: u32 = 0x8000;
+
+const O_FLAGS: u32 = O_DIRECT | O_SEQUENTIAL | O_BINARY;
+
+mod macros;
 fn hash_file(fdata: &FileData, alg: HashAlg, mp: &MultiProgress) -> Result<String, HasherError> {
     // If the file size is zero, then the hashes are already known. Don't bother computing them.
     if fdata.size() == 0 {
@@ -531,16 +416,19 @@ fn hash_file(fdata: &FileData, alg: HashAlg, mp: &MultiProgress) -> Result<Strin
         }
     }
 
-    let mut hasher: Box<dyn DynDigest> = select_hasher(alg);
+    let mut hasher: Box<dyn DynDigest> = hashobj!(alg);
     let mut read_count: usize;
 
-    #[cfg(not(target_os = "linux"))]
-    let mut buffer: Box<[u8]> = vec![0; BUFSIZE].into_boxed_slice();
+    #[cfg(target_os = "windows")]
+    let mut buffer = vec![0_u8; SIZE_2MB].into_boxed_slice();
     #[cfg(target_os = "linux")]
-    let mut buffer = AlignedBox::<[u8]>::slice_from_value(ALIGNMENT, SIZE_2MB, 0_u8).unwrap();
+    let mut buffer = AlignedBox::<[u8]>::slice_from_value(ALIGNMENT, SIZE_2MB, 0_u8)
+        .expect("Heap read buffer allocation failed, panic");
+
+    // the unwrap will not fail if you don't monkey with the constants that make up O_FLAGS
     let mut file = OpenOptions::new()
         .read(true)
-        .custom_flags(O_DIRECT)
+        .custom_flags(O_FLAGS.try_into().unwrap())
         .open(fdata.path())?;
 
     if fdata.size() > SIZE_128MB as u64 {
@@ -576,25 +464,6 @@ fn hash_file(fdata: &FileData, alg: HashAlg, mp: &MultiProgress) -> Result<Strin
     Ok(hex::encode(hasher.finalize()))
 }
 
-/*use lazy_static::lazy_static;
-lazy_static! {
-    static ref HEXSTRING_PATTERN: Regex = hash_hexpattern();
-}
-
-fn hash_hexpattern() -> Regex {
-    const STR_REGEX: &str = concat!(
-        r"([[:xdigit:]]{32})|", // MD5
-        r"([[:xdigit:]]{40})|", // SHA1
-        r"([[:xdigit:]]{56})|", // SHA224
-        r"([[:xdigit:]]{64})|", // SHA256
-        r"([[:xdigit:]]{96})|", // SHA384
-        r"([[:xdigit:]]{128})", // SHA512
-    );
-    // As this regex is initialized at process startup, panic instead
-    // of returning an error
-    Regex::new(STR_REGEX).expect("[!] Regular expression engine startup failure")
-}*/
-
 fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
     if let Some(path) = file_path.file_name() {
         if let Some(str_path) = path.to_str() {
@@ -607,6 +476,16 @@ fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
         error!("[-] Failed to retrieve file name from path object");
         false
     }
+}
+
+// Changed to macro to reduce function call overhead
+macro_rules! filelog {
+    ($msg:expr, $opthandle:expr) => {
+        if let Some(handle) = $opthandle {
+            let mut guarded_filehandle = handle.lock().expect("Mutex unlock failure - Panic!");
+            (*guarded_filehandle).write($msg.as_bytes()).ok();
+        }
+    };
 }
 
 fn perform_hash_threadfunc(
@@ -631,7 +510,7 @@ fn perform_hash_threadfunc(
         if fdata.size() > 0 {
             mp.println(&result).ok();
         }
-        write_to_log(&result, &loghandle);
+        filelog!(&result, &loghandle);
     } else {
         // Compare
         if fdata.hash() == &actual_hash {
@@ -642,7 +521,7 @@ fn perform_hash_threadfunc(
                     actual_hash
                 );
                 mp.println(&result).ok();
-                write_to_log(&result, &loghandle);
+                filelog!(&result, &loghandle);
             }
         } else {
             result = format!(
@@ -652,69 +531,12 @@ fn perform_hash_threadfunc(
                 actual_hash
             );
             mp.println(&result).ok();
-            write_to_log(&result, &loghandle);
+            filelog!(&result, &loghandle);
         }
     }
     Ok(())
 }
 
-// Clippy would prefer a better default() invocation, but
-// that is waaaayyy too verbose. Suppress for this function
-#[allow(clippy::box_default)]
-fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
-    match alg {
-        HashAlg::MD5 => Box::new(md5::Md5::default()),
-        HashAlg::SHA1 => Box::new(sha1::Sha1::default()),
-        HashAlg::SHA224 => Box::new(sha2::Sha224::default()),
-        HashAlg::SHA256 => Box::new(sha2::Sha256::default()),
-        HashAlg::SHA384 => Box::new(sha2::Sha384::default()),
-        HashAlg::SHA512 => Box::new(sha2::Sha512::default()),
-    }
-}
-
-fn split_hashfile_line(
-    newline: &String,
-    hashpath: &Path,
-) -> Result<(PathBuf, String), HasherError> {
-    let splitline: Vec<&str> = newline.split_whitespace().collect();
-    if splitline.len() < 2 {
-        Err(ParseError {
-            why: format!("Line does not have enough elements: {newline}"),
-        })
-    } else {
-        let hashval: &str = splitline[0];
-        //alternate - !HEXSTRING_PATTERN.is_match(hashval), maybe someday
-        validate_hexstring(hashval)?;
-        let canonical_path = canonicalize_split_filepath(&splitline, hashpath)?;
-        Ok((canonical_path, String::from(hashval)))
-    }
-}
-
-fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
-    let hexlen = hexstring.len();
-    match hexlen {
-        32 | 40 | 56 | 64 | 96 | 128 => {
-            for chr in hexstring.chars() {
-                if !chr.is_ascii_hexdigit() {
-                    return Err(ParseError {
-                        why: String::from("Non-hex character found"),
-                    });
-                }
-            }
-            Ok(())
-        }
-        _ => Err(ParseError {
-            why: format!("Bad hexstring length: {hexlen}"),
-        }),
-    }
-}
-
-fn write_to_log(msg: &String, loghandle: &Option<Arc<Mutex<File>>>) {
-    if let Some(handle) = loghandle {
-        let mut guarded_filehandle = handle.lock().expect("Mutex unlock failure - Panic!");
-        (*guarded_filehandle).write(msg.as_bytes()).ok();
-    }
-}
 ///////////////////////////////////////////////////////////////////////////////
 /// TESTS
 ///////////////////////////////////////////////////////////////////////////////
