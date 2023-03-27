@@ -23,14 +23,13 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
-
 extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
 use {
     clap::Parser,
-    diskhasher::{HashAlg, Hasher, HasherError},
+    diskhasher::{FileSortLogic, HashAlg, Hasher},
     log::LevelFilter,
 };
 
@@ -57,10 +56,12 @@ struct Arguments {
     /// Print all results to stdout
     #[clap(short, long, action)]
     pub verbose: bool,
-    /// Hash largest files first instead of smallest files
-    #[clap(long, action)]
-    pub largest: bool,
-    /// [Optional] name of a file to which failed hashes will be logged
+    /// File sorting order
+    #[clap(short, long)]
+    #[cfg_attr(linux, arg(value_enum, default_value_t=FileSortLogic::InodeOrder))]
+    #[cfg_attr(windows, arg(value_enum, default_value_t=FileSortLogic::LargestFirst))]
+    pub sorting: FileSortLogic,
+    /// Regex pattern used to identify hashfiles
     #[clap(short, long)]
     pub logfile: Option<String>,
     /// [Optional] number of jobs (will be capped by number of cores)
@@ -68,7 +69,10 @@ struct Arguments {
     pub jobs: Option<usize>,
 }
 
-fn main() -> Result<(), HasherError> {
+fn main() {
+    if !(cfg!(windows) || cfg!(linux)) {
+        panic!("Unsupported operating system")
+    }
     pretty_env_logger::formatted_timed_builder()
         .filter_level(LevelFilter::Info)
         .init();
@@ -79,24 +83,22 @@ fn main() -> Result<(), HasherError> {
         .clone()
         .unwrap_or(String::from("NO_VALID_PATTERN"));
 
-    let mut myhasher = Hasher::new(
+    let mut myhasher = match Hasher::new(
         args.algorithm,
         args.directory.clone(),
         pattern,
         args.logfile,
         args.jobs,
-    )?;
-    /*{
+    ) {
         Ok(v) => v,
         Err(err) => {
             error!("[!] Hasher constructor error => {err}");
-            return Err(err);
+            return;
         }
-    };*/
-    if let Err(err) = myhasher.run(args.force, args.verbose, args.largest) {
+    };
+    if let Err(err) = myhasher.run(args.force, args.verbose, args.sorting) {
         error!("[!] Hasher runtime failure => {err}");
-        return Err(err);
+        return;
     };
     info!("[+] Done");
-    Ok(())
 }

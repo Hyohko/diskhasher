@@ -26,9 +26,16 @@
 
 [package]
 name = "diskhasher"
+description = """
+Recursive directory file hasher -
+computes cryptographic checksums for every
+file in a directory. Supports MD5, SHA1, SHA224,
+SHA256, SHA384, and SHA512"""
 authors = ["Hyohko"]
 version = "0.1.0"
 edition = "2021"
+license = "GPLv3"
+repository = "https://github.com/Hyohko/diskhasher"
 
 [profile.release]
 lto = "fat"
@@ -53,3 +60,5 @@ walkdir = "^2"
 custom_error = "^1.9"
 lazy_static = "^1.4"
 indicatif = "^0.17"
+aligned_box = "^0.2"
+typenum = "^1"
