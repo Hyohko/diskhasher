@@ -36,7 +36,7 @@ use {
 #[derive(Parser)]
 #[clap(
     author = "Hyohko",
-    version = "0.2.0",
+    version = "0.2.1",
     about = "Hash a directory's files and optionally check against existing hashfile"
 )]
 struct Arguments {
