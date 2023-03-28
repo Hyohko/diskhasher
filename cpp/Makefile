@@ -42,7 +42,7 @@ CXXFLAGS = $(CFLAGS) -std=c++2a
 LDFLAGS = -Wl,--gc-sections -pie
 LIBS = -pthread
 
-SRCS = md5.c sha1.c sha256.c kcapi-kernel-if.c kcapi-md.c kcapi-utils.c
+SRCS = md5.c sha1.c sha256.c sha512.c kcapi-kernel-if.c kcapi-md.c kcapi-utils.c
 SRCS_CPP = diskhasher.cpp filehash.cpp hash.cpp
 
 OBJS = $(SRCS:.c=.o)

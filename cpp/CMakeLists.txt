@@ -68,6 +68,7 @@ set(SOURCES
     md5.c
     sha1.c
     sha256.c
+    sha512.c
     diskhasher.cpp
     filehash.cpp
     hash.cpp
