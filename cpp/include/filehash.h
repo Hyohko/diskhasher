@@ -30,25 +30,32 @@
 
 typedef enum
 {
-    MD5, SHA1, SHA256
+    MD5,
+    SHA1,
+#ifndef _WIN32
+    SHA224,
+#endif
+    SHA256,
+    SHA384,
+    SHA512
 } HASHALG;
 
 /**
  * @brief Set limit on the number of hash threads that can run simultaneously
  * @param limit number of concurrent threads
-*/
+ */
 void set_hash_concurrency_limit(unsigned int limit);
 
 /**
  * @brief Remove limit on the number of hash threads that can run simultaneously
  * @param limit number of concurrent threads
  * @note If set_limit above is called, you should call this just before program termination
-*/
+ */
 void destroy_hash_concurrency_limit();
 
 /**
  * @brief Perform self tests on local hash functions
-*/
+ */
 void run_hash_tests();
 
 /**
@@ -57,22 +64,22 @@ void run_hash_tests();
  * @param algorithm The hash algorithm being used
  * @param expected The expected hash of the file, if it's being checked. To skip this check,
  * @param use_osapi_hashing If TRUE, try to force the use of the OS crypto API
-*/
+ */
 pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string expected, bool use_osapi_hashing, bool verbose);
 
 /**
  * @brief When called, terminates all running tasks
-*/
+ */
 void stop_tasks();
 
 /**
  * @brief Opens the log file for task logging
  * @param path The path to the log file
  * @param log_successes If true, then write successful hashes to the file in addition to failures
-*/
-void set_log_path(const fs::path& path, bool log_successes);
+ */
+void set_log_path(const fs::path &path, bool log_successes);
 
 /**
  * @brief Flush and close the log file
-*/
+ */
 void close_log();

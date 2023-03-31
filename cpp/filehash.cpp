@@ -41,8 +41,8 @@
  * @param expected The expected hash of the file, if it's being checked. To skip this check,
  * pass IGNORE_HASH_CHECK instead
  * @param actual The actual hash as computed.
-*/
-static void log_result(const fs::path& path, const std::string& expected, const std::string& actual);
+ */
+static void log_result(const fs::path &path, const std::string &expected, const std::string &actual);
 
 static std::atomic_bool s_task_ended(false);
 static bool s_log_successes = false;
@@ -50,7 +50,7 @@ static bool s_log_successes = false;
 std::shared_ptr<spdlog::logger> s_logfile;
 bool s_logger_init = false;
 
-//concurrency semaphores
+// concurrency semaphores
 static std::atomic_bool s_sem_isset(false);
 #ifdef _WIN32
 static HANDLE sem_threads = NULL;
@@ -73,10 +73,11 @@ void set_hash_concurrency_limit(unsigned int limit)
 
 static void sem_lock()
 {
-    if(s_sem_isset.load())
+    if (s_sem_isset.load())
     {
 #ifdef _WIN32
-        if(NULL != sem_threads) WaitForSingleObject(sem_threads, INFINITE);
+        if (NULL != sem_threads)
+            WaitForSingleObject(sem_threads, INFINITE);
 #else
         sem_wait(&sem_threads);
 #endif
@@ -85,10 +86,11 @@ static void sem_lock()
 
 static void sem_unlock()
 {
-    if(s_sem_isset.load())
+    if (s_sem_isset.load())
     {
 #ifdef _WIN32
-        if(NULL != sem_threads) ReleaseSemaphore(sem_threads, 1, NULL);
+        if (NULL != sem_threads)
+            ReleaseSemaphore(sem_threads, 1, NULL);
 #else
         sem_post(&sem_threads);
 #endif
@@ -98,7 +100,8 @@ static void sem_unlock()
 void destroy_hash_concurrency_limit()
 {
 #ifdef _WIN32
-    if(NULL != sem_threads) CloseHandle(sem_threads);
+    if (NULL != sem_threads)
+        CloseHandle(sem_threads);
 #else
     sem_destroy(&sem_threads);
 #endif
@@ -110,7 +113,10 @@ void run_hash_tests()
     spdlog::info("[+] Running self tests using FIPS-180 test vectors");
     md5_self_test(1);
     sha1_self_test(1);
+    sha224_self_test(1);
     sha256_self_test(1);
+    sha384_self_test(1);
+    sha512_self_test(1);
     spdlog::info("[+] Self test complete");
 }
 
@@ -124,16 +130,16 @@ void run_hash_tests()
 #include <fcntl.h> // POSIX Open
 #ifdef _WIN32
 #include <io.h>
-#define open(a,b)   _open((a),(b))
-#define read(a,b,c) _read((a),(b),(c))
-#define close(a)    _close((a))
-#define O_DIRECT    (_O_SEQUENTIAL)
+#define open(a, b) _open((a), (b))
+#define read(a, b, c) _read((a), (b), (c))
+#define close(a) _close((a))
+#define O_DIRECT (_O_SEQUENTIAL)
 #else
 /*
     Windows requires O_BINARY to open the file in binary mode, which is the default
     on POSIX systems.
 */
-#define O_BINARY    (0)
+#define O_BINARY (0)
 #endif
 
 pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string expected, bool use_osapi_hashing, bool verbose)
@@ -146,7 +152,7 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
 
     // Get dedicated thread logger object from logger registry
     std::shared_ptr<spdlog::logger> local_logger = spdlog::get(THREADLOGGER_STR);
-    if(verbose)
+    if (verbose)
     {
         local_logger->set_level(spdlog::level::debug); // Set local log level to debug
     }
@@ -159,18 +165,19 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
     std::unique_ptr<unsigned char[]> safeBuf(new unsigned char[READCHUNK_SIZE]);
 #else
     const std::align_val_t ALIGN_SIZE = std::align_val_t(512);
-    static auto del = [](unsigned char* p){operator delete[](p, ALIGN_SIZE);};
-    std::unique_ptr<unsigned char[], decltype(del)> safeBuf(new(ALIGN_SIZE) unsigned char[READCHUNK_SIZE]);
+    static auto del = [](unsigned char *p)
+    { operator delete[](p, ALIGN_SIZE); };
+    std::unique_ptr<unsigned char[], decltype(del)> safeBuf(new (ALIGN_SIZE) unsigned char[READCHUNK_SIZE]);
 #endif
-    unsigned char* buf = safeBuf.get();
-    if(!buf)
+    unsigned char *buf = safeBuf.get();
+    if (!buf)
     {
         local_logger->error("[-] Allocation failure");
         hexdigest = HASH_CANCELLED_STR;
         goto exit;
     }
 
-    switch(algorithm)
+    switch (algorithm)
     {
     case MD5:
         hasher = std::make_unique<c_md5>(local_logger);
@@ -178,12 +185,25 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
     case SHA1:
         hasher = std::make_unique<c_sha1>(local_logger);
         break;
+#ifndef _WIN32
+    case SHA224:
+        hasher = std::make_unique<c_sha224>(local_logger);
+        break;
+#endif
     case SHA256:
         hasher = std::make_unique<c_sha256>(local_logger);
         break;
+    case SHA384:
+        hasher = std::make_unique<c_sha384>(local_logger);
+        break;
+    case SHA512:
+        hasher = std::make_unique<c_sha512>(local_logger);
+        break;
+    default:
+        throw std::domain_error("Unsupported algorithm");
     }
 
-    if(nullptr == safeBuf.get())
+    if (nullptr == safeBuf.get())
     {
         local_logger->error("[-] Allocation failure - hash object");
         hexdigest = HASH_FAILED_STR;
@@ -194,15 +214,15 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
 
     sem_lock();
     r_file = open(path.string().c_str(), O_RDONLY | O_DIRECT | O_BINARY);
-    if(-1 == r_file)
+    if (-1 == r_file)
     {
         local_logger->error("[-] OsErr: {} => File '{}' failed to open", std::strerror(errno), path.string());
         goto exit;
     }
 
-    while ( 1 )
+    while (1)
     {
-        if(s_task_ended.load())
+        if (s_task_ended.load())
         {
             hexdigest = HASH_CANCELLED_STR;
             goto exit;
@@ -230,7 +250,7 @@ eof:
     hexdigest = hasher->get_hash();
     log_result(path, expected, hexdigest);
 exit:
-    if(-1 != r_file)
+    if (-1 != r_file)
     {
         close(r_file);
     }
@@ -245,7 +265,7 @@ void stop_tasks()
     s_task_ended = true;
 }
 
-void set_log_path(const fs::path& path, bool log_successes)
+void set_log_path(const fs::path &path, bool log_successes)
 {
     try
     {
@@ -267,33 +287,36 @@ void close_log()
     s_logfile.reset();
 }
 
-void log_result(const fs::path& path, const std::string& expected, const std::string& actual)
+void log_result(const fs::path &path, const std::string &expected, const std::string &actual)
 {
     static const std::string ignored(IGNORE_HASH_CHECK);
-    if(expected == ignored)
+    if (expected == ignored)
     {
         return;
     }
-    if(actual != expected)
+    if (actual != expected)
     {
-        spdlog::error("[-] File '{}' failed checksum\n" \
-        "\t\t\tExpected: '{}'\n" \
-        "\t\t\tActual  : '{}'", path.string(), expected, actual);
-        if(s_logger_init)
+        spdlog::error("[-] File '{}' failed checksum\n"
+                      "\t\t\tExpected: '{}'\n"
+                      "\t\t\tActual  : '{}'",
+                      path.string(), expected, actual);
+        if (s_logger_init)
         {
-            s_logfile->error("[-] FAILURE =>\n\t" \
-                "File     : {}\n\t" \
-                "Expected : {}\n\t" \
-                "Actual   : {}\n", path.string().c_str(), expected.c_str(), actual.c_str());
+            s_logfile->error("[-] FAILURE =>\n\t"
+                             "File     : {}\n\t"
+                             "Expected : {}\n\t"
+                             "Actual   : {}\n",
+                             path.string().c_str(), expected.c_str(), actual.c_str());
         }
     }
-    else if(s_log_successes)
+    else if (s_log_successes)
     {
-        if(s_logger_init)
+        if (s_logger_init)
         {
-            s_logfile->info("[-] SUCCESS =>\n\t" \
-            "File     : {}\n\t" \
-            "Actual   : {}\n", path.string().c_str(), actual.c_str());
+            s_logfile->info("[-] SUCCESS =>\n\t"
+                            "File     : {}\n\t"
+                            "Actual   : {}\n",
+                            path.string().c_str(), actual.c_str());
         }
     }
 }
