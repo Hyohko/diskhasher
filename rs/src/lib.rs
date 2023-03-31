@@ -229,7 +229,7 @@ impl Hasher {
             for line in spinner.wrap_iter(reader.lines()) {
                 let newline = line?;
                 match split_hashfile_line(&newline, &hashpath) {
-                    Ok(v) => self.hashmap.insert(v.0, v.1),
+                    Ok((path, hash)) => self.hashmap.insert(path, hash),
                     Err(err) => {
                         error!("[!] {err} : Failed to parse line from hashfile :: {newline}");
                         continue;
