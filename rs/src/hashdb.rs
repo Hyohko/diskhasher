@@ -30,11 +30,7 @@ use {
     std::path::{Path, PathBuf},
 };
 
-fn canonicalize_split_filepath(
-    splitline: &[&str],
-    hashpath: &Path,
-) -> Result<PathBuf, HasherError> {
-    let file_path = splitline[1..].join(" ");
+fn canonicalize_filepath(file_path: &str, hashpath: &Path) -> Result<PathBuf, HasherError> {
     let mut file_path_buf: PathBuf = Path::new(&file_path).to_path_buf();
     if file_path_buf.is_absolute() {
         Ok(file_path_buf)
@@ -79,18 +75,13 @@ pub fn split_hashfile_line(
     newline: &String,
     hashpath: &Path,
 ) -> Result<(PathBuf, String), HasherError> {
-    let splitline: Vec<&str> = newline.split_whitespace().collect();
-    if splitline.len() < 2 {
-        Err(HasherError::Parse {
-            why: format!("Line does not have enough elements: {newline}"),
-        })
-    } else {
-        let hashval: &str = splitline[0];
-        //alternate - !HEXSTRING_PATTERN.is_match(hashval), maybe someday
-        validate_hexstring(hashval)?;
-        let canonical_path = canonicalize_split_filepath(&splitline, hashpath)?;
-        Ok((canonical_path, String::from(hashval)))
-    }
+    let (hashval, file_path) = newline.split_once(' ').ok_or(HasherError::Parse {
+        why: format!("Line does not have enough elements: {newline}"),
+    })?;
+    //alternate - !HEXSTRING_PATTERN.is_match(hashval), maybe someday
+    validate_hexstring(hashval)?;
+    let canonical_path = canonicalize_filepath(&file_path, hashpath)?;
+    Ok((canonical_path, String::from(hashval)))
 }
 
 pub fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
