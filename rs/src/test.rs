@@ -131,27 +131,15 @@ mod implements_traits {
 
     #[test]
     fn debug_print() {
-        let hasher: Hasher = Hasher::new(
-            HashAlg::MD5,
-            String::from("./"),
-            String::from(""),
-            None,
-            None,
-        )
-        .unwrap();
+        let hasher: Hasher =
+            Hasher::new(HashAlg::MD5, String::from("./"), None, None, None).unwrap();
         println!("{:?}", hasher);
     }
 
     #[test]
     fn can_clone() {
-        let hasher: Hasher = Hasher::new(
-            HashAlg::MD5,
-            String::from("./"),
-            String::from(""),
-            None,
-            None,
-        )
-        .unwrap();
+        let hasher: Hasher =
+            Hasher::new(HashAlg::MD5, String::from("./"), None, None, None).unwrap();
         let _myclone = hasher.clone();
     }
 }

@@ -118,13 +118,20 @@ impl Hasher {
     pub fn new(
         alg: HashAlg,
         root_dir: String,
-        hashfile_pattern: String,
+        hashfile_pattern: Option<String>,
         logfile: Option<String>,
         jobs: Option<usize>,
     ) -> Result<Self, HasherError> {
-        let hash_regex = Regex::new(&hashfile_pattern).map_err(|err| HasherError::Regex {
-            why: format!("'{hashfile_pattern}' returns error {err}"),
-        })?;
+        let hash_regex: Regex;
+        if let Some(pattern) = hashfile_pattern {
+            hash_regex = Regex::new(&pattern).map_err(|err| HasherError::Regex {
+                why: format!("'{pattern}' returns error {err}"),
+            })?;
+        } else {
+            // This is the "match nothing" regex
+            hash_regex = Regex::new(".^")
+                .expect("This regex ('.^') should never fail unless alloc error occurred");
+        }
 
         let root = fs::canonicalize(Path::new(&root_dir))?;
         if !root.is_dir() {
@@ -279,6 +286,7 @@ impl Hasher {
             if force {
                 warn!("[-] {reason}");
             } else {
+                error!("[-] '--force' flag not specified, either force computation or check your regex pattern");
                 return Err(HasherError::Regex { why: reason });
             }
         }
