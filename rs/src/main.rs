@@ -83,15 +83,11 @@ fn main() {
         .init();
 
     let args = Arguments::parse();
-    let pattern = args
-        .pattern
-        .clone()
-        .unwrap_or(String::from("NO_VALID_PATTERN"));
 
     let mut myhasher = match Hasher::new(
         args.algorithm,
         args.directory.clone(),
-        pattern,
+        args.pattern,
         args.logfile,
         args.jobs,
     ) {
