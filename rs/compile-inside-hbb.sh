@@ -30,18 +30,28 @@ BUILD_DIR=/io
 cd $BUILD_DIR
 BUILD_MODE=""
 case $1 in
+	native )
+		echo "[+] Building release mode against native CPU architecture"
+		ARTIFACT=release
+		export RUSTFLAGS='-C target-cpu=native'
+		cargo build --release
+		;;
     release )
+		echo "[+] Building release mode"
 		ARTIFACT=release
 		cargo build --release
 		;;
     debug )
+		echo "[+] Building debug mode"
 		ARTIFACT=debug
 		cargo build
 		;;
     * ) 
-		echo "[*] Default build mode is debug"
-		ARTIFACT=debug
-		cargo build 
+		echo "[!] Must specify build [native|debug|release] to the internal"
+		echo "  $0 native"
+		echo "  $0 debug"
+		echo "  $0 release"
+		exit
 		;;
 esac
 
