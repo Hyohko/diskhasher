@@ -145,7 +145,7 @@ mod implements_traits {
 }
 
 mod validate_hexstring {
-    use crate::hashdb::validate_hexstring;
+    use crate::util::validate_hexstring;
 
     #[test]
     fn good_input() {
