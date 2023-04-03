@@ -25,13 +25,13 @@
 */
 mod error;
 mod filedata;
-mod hashdb;
+mod util;
 
 extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
-use crate::{error::HasherError, filedata::FileData, hashdb::*};
+use crate::{error::HasherError, filedata::FileData, util::*};
 
 use {
     clap::ValueEnum,
@@ -294,21 +294,6 @@ impl Hasher {
         Ok(())
     }
 
-    /*fn recursive_dir_deprecated(&mut self) -> Result<Vec<FileData>, HasherError> {
-        let mut file_vec = Vec::<FileData>::new();
-
-        let spinner = self.create_spinner(format!("[+] Recursing through {:?}", self.root))?;
-        for entry in spinner
-            .wrap_iter(WalkDir::new(&self.root).into_iter())
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_file())
-        {
-            file_vec.push(FileData::try_from(entry)?);
-        }
-        self.mp.remove(&spinner);
-        Ok(file_vec)
-    }*/
-
     fn recursive_dir(&mut self) -> Result<Vec<FileData>, HasherError> {
         let spinner = self.create_spinner(format!("[+] Recursing through {:?}", self.root))?;
         let file_vec: Vec<FileData> = spinner
@@ -379,7 +364,11 @@ impl Hasher {
 
         let num_files = self.checkedfiles.len();
         let style: ProgressStyle = ProgressStyle::with_template(
-            "[{elapsed_precise}] ({percent:3}%) {bar:30.red/magenta} {pos:>10.green}/{len:<10.green} * Total File Progress *",
+            "[{elapsed_precise}] \
+            ({percent:3}%) \
+            {bar:30.red/magenta} \
+            {pos:>10.green}/{len:<10.green} \
+            * Total File Progress *",
         )?
         .progress_chars("==>");
         let bar = self
@@ -427,14 +416,7 @@ mod macros;
 fn hash_file(fdata: &FileData, alg: HashAlg, mp: &MultiProgress) -> Result<String, HasherError> {
     // If the file size is zero, then the hashes are already known. Don't bother computing them.
     if fdata.size() == 0 {
-        match alg {
-            HashAlg::MD5 => return Ok(String::from("d41d8cd98f00b204e9800998ecf8427e")),
-            HashAlg::SHA1 => return Ok(String::from("da39a3ee5e6b4b0d3255bfef95601890afd80709")),
-            HashAlg::SHA224 => return Ok(String::from("d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f")),
-            HashAlg::SHA256 => return Ok(String::from("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")),
-            HashAlg::SHA384 => return Ok(String::from("38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b")),
-            HashAlg::SHA512 => return Ok(String::from("cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e")),
-        }
+        return Ok(known_zero_hash!(alg));
     }
 
     let mut hasher: Box<dyn DynDigest> = hashobj!(alg);
@@ -449,12 +431,20 @@ fn hash_file(fdata: &FileData, alg: HashAlg, mp: &MultiProgress) -> Result<Strin
     // the unwrap will not fail if you don't monkey with the constants that make up O_FLAGS
     let mut file = OpenOptions::new()
         .read(true)
-        .custom_flags(O_FLAGS.try_into().unwrap())
+        .custom_flags(
+            O_FLAGS
+                .try_into()
+                .expect("O_FLAGS integer conversion failed b/c the programmer messed with it"),
+        )
         .open(fdata.path())?;
 
     if fdata.size() > SIZE_128MB as u64 {
         let style: ProgressStyle = ProgressStyle::with_template(
-            "[{elapsed_precise}] ({percent:3}%) {bar:30.cyan/blue} {bytes:>10.green}/{total_bytes:<10.green} {msg}",
+            "[{elapsed_precise}] \
+            ({percent:3}%) \
+            {bar:30.cyan/blue} \
+            {bytes:>10.green}/{total_bytes:<10.green} \
+            {msg}",
         )?
         .progress_chars("##-");
         let bar = mp.add(ProgressBar::new(fdata.size()).with_style(style));
