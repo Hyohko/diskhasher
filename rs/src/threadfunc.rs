@@ -126,11 +126,11 @@ pub fn perform_hash_threadfunc(
     force: bool,
     verbose: bool,
     loghandle: Option<Arc<Mutex<File>>>,
-    opt_mp: Option<MultiProgress>,       // is already an Arc
-    total_progress: Option<ProgressBar>, // is already an Arc
+    opt_mp: Option<MultiProgress>,     // is already an Arc
+    opt_progress: Option<ProgressBar>, // is already an Arc
 ) -> Result<(), HasherError> {
     let actual_hash = hash_file(&fdata, alg, &opt_mp)?;
-    if let Some(tp) = total_progress {
+    if let Some(tp) = opt_progress {
         tp.inc(1);
     }
     let result: String;
