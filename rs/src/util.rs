@@ -25,7 +25,8 @@
 */
 
 use {
-    crate::HasherError,
+    crate::error::HasherError,
+    regex::Regex,
     std::fs,
     std::path::{Path, PathBuf},
 };
@@ -70,6 +71,20 @@ fn hash_hexpattern() -> Regex {
     // of returning an error
     Regex::new(STR_REGEX).expect("[!] Regular expression engine startup failure")
 }*/
+
+pub fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
+    if let Some(path) = file_path.file_name() {
+        if let Some(str_path) = path.to_str() {
+            hash_regex.is_match(str_path)
+        } else {
+            error!("[-] Failed to convert path to string");
+            false
+        }
+    } else {
+        error!("[-] Failed to retrieve file name from path object");
+        false
+    }
+}
 
 pub fn split_hashfile_line(
     newline: &String,

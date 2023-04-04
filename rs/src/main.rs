@@ -29,7 +29,10 @@ extern crate log;
 
 use {
     clap::Parser,
-    diskhasher::{enums::FileSortLogic, enums::HashAlg, Hasher},
+    diskhasher::{
+        enums::{FileSortLogic, HashAlg},
+        hasher::Hasher,
+    },
     log::LevelFilter,
 };
 
@@ -118,6 +121,7 @@ struct Arguments {
     pub jobs: Option<usize>,
 }
 
+/// Main function
 fn main() {
     if !(cfg!(target_os = "windows") || cfg!(target_os = "linux")) {
         panic!("Unsupported operating system")

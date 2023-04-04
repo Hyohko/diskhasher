@@ -23,21 +23,29 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
-mod constants;
-pub mod enums;
-mod error;
-mod filedata;
-pub mod hasher;
-mod macros;
-mod threadfunc;
-mod util;
 
-extern crate pretty_env_logger;
-#[macro_use]
-extern crate log;
+/// (2) MiB
+pub const SIZE_2MB: usize = 1024 * 1024 * 2;
+/// (128) MiB
+pub const SIZE_128MB: usize = 1024 * 1024 * 128;
 
-///////////////////////////////////////////////////////////////////////////////
-/// TESTS
-///////////////////////////////////////////////////////////////////////////////
-#[cfg(test)]
-mod test;
+/// Buffer alignment for Direct I/O - one page (4096 bytes)
+#[cfg(target_os = "linux")]
+pub const ALIGNMENT: usize = 0x1000;
+
+/// The Linux flag for Direct I/O
+#[cfg(target_os = "linux")]
+const O_DIRECT: u32 = 0x4000;
+#[cfg(target_os = "linux")]
+const O_SEQUENTIAL: u32 = 0;
+#[cfg(target_os = "linux")]
+const O_BINARY: u32 = 0;
+
+#[cfg(target_os = "windows")]
+const O_DIRECT: u32 = 0;
+#[cfg(target_os = "windows")]
+const O_SEQUENTIAL: u32 = 0x0020;
+#[cfg(target_os = "windows")]
+const O_BINARY: u32 = 0x8000;
+
+pub const O_FLAGS: u32 = O_DIRECT | O_SEQUENTIAL | O_BINARY;
