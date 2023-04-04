@@ -140,8 +140,8 @@ pub fn perform_hash_threadfunc(
             fdata.path(),
             actual_hash
         );
-        // omitting zero-length hashes from console print in FORCE mode
-        if fdata.size() > 0 {
+        // omitting zero-length hashes from console print in FORCE mode unless verbose
+        if fdata.size() > 0 || verbose {
             if let Some(mp) = opt_mp {
                 mp.println(&result).ok();
             }

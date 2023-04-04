@@ -52,6 +52,7 @@ case $1 in
 esac
 
 case $2 in
+    native ) BUILD_MODE=native ;;
     release ) BUILD_MODE=release ;;
     debug ) BUILD_MODE=debug ;;
     * ) echo "[*] Default build mode is debug";;
