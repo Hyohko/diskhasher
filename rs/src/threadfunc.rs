@@ -46,7 +46,11 @@ use {aligned_box::AlignedBox, std::os::unix::fs::OpenOptionsExt};
 use std::os::windows::fs::OpenOptionsExt;
 
 /// Compute the hash
-fn hash_file(fdata: &FileData, alg: HashAlg, mp: &MultiProgress) -> Result<String, HasherError> {
+fn hash_file(
+    fdata: &FileData,
+    alg: HashAlg,
+    opt_mp: &Option<MultiProgress>,
+) -> Result<String, HasherError> {
     // If the file size is zero, then the hashes are already known. Don't bother computing them.
     if fdata.size() == 0 {
         return Ok(known_zero_hash!(alg));
@@ -71,29 +75,31 @@ fn hash_file(fdata: &FileData, alg: HashAlg, mp: &MultiProgress) -> Result<Strin
         )
         .open(fdata.path())?;
 
-    if fdata.size() > SIZE_128MB as u64 {
-        let style: ProgressStyle = ProgressStyle::with_template(
-            "[{elapsed_precise}] \
+    if let Some(mp) = opt_mp {
+        if fdata.size() > SIZE_128MB as u64 {
+            let style: ProgressStyle = ProgressStyle::with_template(
+                "[{elapsed_precise}] \
             ({percent:3}%) \
             {bar:30.cyan/blue} \
             {bytes:>10.green}/{total_bytes:<10.green} \
             {msg}",
-        )?
-        .progress_chars("##-");
-        let bar = mp.add(ProgressBar::new(fdata.size()).with_style(style));
-        bar.set_message(format!("{:?}", fdata.path().file_name().unwrap()));
-        loop {
-            {
-                read_count = bar.wrap_read(&file).read(&mut buffer[..SIZE_2MB])?;
-                hasher.update(&buffer[..read_count]);
+            )?
+            .progress_chars("##-");
+            let bar = mp.add(ProgressBar::new(fdata.size()).with_style(style));
+            bar.set_message(format!("{:?}", fdata.path().file_name().unwrap()));
+            loop {
+                {
+                    read_count = bar.wrap_read(&file).read(&mut buffer[..SIZE_2MB])?;
+                    hasher.update(&buffer[..read_count]);
+                }
+                if read_count < SIZE_2MB {
+                    break;
+                }
             }
-            if read_count < SIZE_2MB {
-                break;
-            }
+            bar.finish_and_clear();
+            mp.remove(&bar);
+            drop(bar);
         }
-        bar.finish_and_clear();
-        mp.remove(&bar);
-        drop(bar);
     } else {
         loop {
             {
@@ -114,11 +120,13 @@ pub fn perform_hash_threadfunc(
     force: bool,
     verbose: bool,
     loghandle: Option<Arc<Mutex<File>>>,
-    mp: MultiProgress,           // is already an Arc
-    total_progress: ProgressBar, // is already an Arc
+    opt_mp: Option<MultiProgress>,       // is already an Arc
+    total_progress: Option<ProgressBar>, // is already an Arc
 ) -> Result<(), HasherError> {
-    let actual_hash = hash_file(&fdata, alg, &mp)?;
-    total_progress.inc(1);
+    let actual_hash = hash_file(&fdata, alg, &opt_mp)?;
+    if let Some(tp) = total_progress {
+        tp.inc(1);
+    }
     let result: String;
     if force {
         result = format!(
@@ -128,7 +136,9 @@ pub fn perform_hash_threadfunc(
         );
         // omitting zero-length hashes from console print in FORCE mode
         if fdata.size() > 0 {
-            mp.println(&result).ok();
+            if let Some(mp) = opt_mp {
+                mp.println(&result).ok();
+            }
         }
         filelog!(result, loghandle);
     } else {
@@ -140,7 +150,9 @@ pub fn perform_hash_threadfunc(
                     fdata.path(),
                     actual_hash
                 );
-                mp.println(&result).ok();
+                if let Some(mp) = opt_mp {
+                    mp.println(&result).ok();
+                }
                 filelog!(result, loghandle);
             }
         } else {
@@ -150,7 +162,9 @@ pub fn perform_hash_threadfunc(
                 fdata.hash(),
                 actual_hash
             );
-            mp.println(&result).ok();
+            if let Some(mp) = opt_mp {
+                mp.println(&result).ok();
+            }
             filelog!(result, loghandle);
         }
     }
