@@ -27,29 +27,84 @@
 use {
     crate::error::HasherError,
     regex::Regex,
-    std::fs,
-    std::path::{Path, PathBuf},
+    std::{
+        fs::canonicalize,
+        path::{Path, PathBuf},
+    },
 };
 
-fn canonicalize_filepath(file_path: &str, hashpath: &Path) -> Result<PathBuf, HasherError> {
+/// Canonicalizes a file path, checking to see that the file exists and returns
+/// an absolute path to that file.
+/// TODO: Once PathBuf::absolute() is part of Rust Stable, replace this function
+pub fn canonicalize_filepath(file_path: &str, hashpath: &Path) -> Result<PathBuf, HasherError> {
     let mut file_path_buf: PathBuf = Path::new(&file_path).to_path_buf();
-    if file_path_buf.is_absolute() {
+    if file_path_buf.is_relative() {
+        //if !file_path.starts_with("./") {
+        //    let new_file_path: String = format!("./{file_path}");
+        //    file_path_buf = Path::new(&new_file_path).to_path_buf();
+        //}
+        file_path_buf = hashpath.join(&file_path_buf);
+        file_path_buf = canonicalize(file_path_buf)?;
+    }
+    if file_path_buf.is_file() {
         Ok(file_path_buf)
     } else {
-        if !file_path.starts_with("./") {
-            let new_file_path: String = format!("./{file_path}");
-            file_path_buf = Path::new(&new_file_path).to_path_buf();
-        }
-        file_path_buf = hashpath.join(&file_path_buf);
-        file_path_buf = fs::canonicalize(file_path_buf)?;
-        if file_path_buf.is_file() {
-            Ok(file_path_buf)
+        Err(HasherError::File {
+            why: String::from("Path is not a valid regular file"),
+            path: file_path_buf.display().to_string(),
+        })
+    }
+}
+
+/// Validates that at least the file name portion of a file path matches
+/// the given regular expression.
+pub fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
+    if let Some(path) = file_path.file_name() {
+        if let Some(str_path) = path.to_str() {
+            hash_regex.is_match(str_path)
         } else {
-            Err(HasherError::File {
-                why: String::from("Path is not a valid regular file"),
-                path: file_path_buf.display().to_string(),
-            })
+            error!("[-] Failed to convert path to string");
+            false
         }
+    } else {
+        error!("[-] Failed to retrieve file name from path object");
+        false
+    }
+}
+
+/// Takes a line from a hashfile in the format "<hash hexstring> <path to file>",
+/// validates that the hash is the correct length/format, and checks for the existence
+/// of the file on disk at the given path, returning the path and the hash if both check out
+pub fn split_hashfile_line(
+    newline: &String,
+    hashpath: &Path,
+) -> Result<(PathBuf, String), HasherError> {
+    let (hashval, file_path) = newline.split_once(' ').ok_or(HasherError::Parse {
+        why: format!("Line does not have enough elements: {newline}"),
+    })?;
+    //alternate - !HEXSTRING_PATTERN.is_match(hashval), maybe someday
+    validate_hexstring(hashval)?;
+    let canonical_path = canonicalize_filepath(&file_path.trim(), hashpath)?;
+    Ok((canonical_path, String::from(hashval)))
+}
+
+/// Returns Ok(()) if hexstring is a supported length - i.e. matches
+/// the output of one of the algorithms we support
+pub fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
+    match hexstring.len() {
+        32 | 40 | 56 | 64 | 96 | 128 => {
+            for chr in hexstring.chars() {
+                if !chr.is_ascii_hexdigit() {
+                    return Err(HasherError::Parse {
+                        why: String::from("Non-hex character found"),
+                    });
+                }
+            }
+            Ok(())
+        }
+        _ => Err(HasherError::Parse {
+            why: format!("Bad hexstring length: {}", hexstring.len()),
+        }),
     }
 }
 
@@ -71,48 +126,3 @@ fn hash_hexpattern() -> Regex {
     // of returning an error
     Regex::new(STR_REGEX).expect("[!] Regular expression engine startup failure")
 }*/
-
-pub fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
-    if let Some(path) = file_path.file_name() {
-        if let Some(str_path) = path.to_str() {
-            hash_regex.is_match(str_path)
-        } else {
-            error!("[-] Failed to convert path to string");
-            false
-        }
-    } else {
-        error!("[-] Failed to retrieve file name from path object");
-        false
-    }
-}
-
-pub fn split_hashfile_line(
-    newline: &String,
-    hashpath: &Path,
-) -> Result<(PathBuf, String), HasherError> {
-    let (hashval, file_path) = newline.split_once(' ').ok_or(HasherError::Parse {
-        why: format!("Line does not have enough elements: {newline}"),
-    })?;
-    //alternate - !HEXSTRING_PATTERN.is_match(hashval), maybe someday
-    validate_hexstring(hashval)?;
-    let canonical_path = canonicalize_filepath(&file_path.trim(), hashpath)?;
-    Ok((canonical_path, String::from(hashval)))
-}
-
-pub fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
-    match hexstring.len() {
-        32 | 40 | 56 | 64 | 96 | 128 => {
-            for chr in hexstring.chars() {
-                if !chr.is_ascii_hexdigit() {
-                    return Err(HasherError::Parse {
-                        why: String::from("Non-hex character found"),
-                    });
-                }
-            }
-            Ok(())
-        }
-        _ => Err(HasherError::Parse {
-            why: format!("Bad hexstring length: {}", hexstring.len()),
-        }),
-    }
-}

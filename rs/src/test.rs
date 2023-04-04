@@ -24,7 +24,55 @@
     <https://www.gnu.org/licenses/>.
 */
 
-mod canonicalize_path {}
+mod canonicalize_path {
+    use crate::util::canonicalize_filepath;
+    use std::{
+        env,
+        fs::{remove_file, File},
+        path::{Path, PathBuf},
+    };
+
+    #[test]
+    fn relative_path_not_exists() {
+        let rel: &str = "does_not_exist.txt";
+        let base: PathBuf = env::current_dir().unwrap();
+        let val = canonicalize_filepath(rel, &base);
+        assert!(val.is_err());
+    }
+
+    #[test]
+    fn relative_path_exists() {
+        let rel: &str = "exists.txt";
+        assert!(File::create(&rel).is_ok());
+        let base: PathBuf = env::current_dir().unwrap();
+        let expected = base.clone().join(rel);
+        let val = canonicalize_filepath(rel, &base);
+        assert!(val.is_ok());
+        assert_eq!(val.unwrap(), expected);
+        remove_file(rel).unwrap();
+    }
+
+    #[test]
+    fn absolute_path_not_exists() {
+        let rel: &str = "does_not_exist.txt";
+        let base: PathBuf = env::current_dir().unwrap().join(rel);
+        let absolute = Path::new(&base);
+        let val = canonicalize_filepath(&absolute.display().to_string(), &base);
+        assert!(val.is_err());
+    }
+
+    #[test]
+    fn absolute_path_exists() {
+        let rel: &str = "exists.txt";
+        let base: PathBuf = env::current_dir().unwrap().join(rel);
+        let absolute = Path::new(&base);
+        assert!(File::create(&absolute).is_ok());
+        let val = canonicalize_filepath(&absolute.display().to_string(), &base);
+        assert!(val.is_ok());
+        assert_eq!(val.unwrap(), absolute);
+        remove_file(absolute).unwrap();
+    }
+}
 
 mod path_matches_regex {
     use crate::util::path_matches_regex;
@@ -61,7 +109,7 @@ mod path_matches_regex {
 
 mod splitline {
     use crate::util::split_hashfile_line;
-    use std::fs::{canonicalize, File};
+    use std::fs::{canonicalize, remove_file, File};
     use std::path::PathBuf;
 
     #[test]
@@ -128,6 +176,7 @@ mod splitline {
             assert!(result.is_ok());
             assert_eq!(result.unwrap().0, good_path_display);
         }
+        remove_file(&good_path).unwrap_or_else(|err| println!("File error: {err}"));
     }
 }
 
