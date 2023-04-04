@@ -186,18 +186,13 @@ macro_rules! known_zero_hash {
     };
 }
 
-// Clippy would prefer a better default() invocation, but
-// that is waaaayyy too verbose. Suppress for this function
-// The macros above have been generated from this function, retain for now
-// so we don't forget what they're here for
-/*#[allow(clippy::box_default)]
-fn select_hasher(alg: HashAlg) -> Box<dyn DynDigest> {
-    match alg {
-        HashAlg::MD5 => Box::new(md5::Md5::default()),
-        HashAlg::SHA1 => Box::new(sha1::Sha1::default()),
-        HashAlg::SHA224 => Box::new(sha2::Sha224::default()),
-        HashAlg::SHA256 => Box::new(sha2::Sha256::default()),
-        HashAlg::SHA384 => Box::new(sha2::Sha384::default()),
-        HashAlg::SHA512 => Box::new(sha2::Sha512::default()),
-    }
-}*/
+// Given an Arc<Mutex<File>> and a String msg, write that string to the opened file
+#[macro_export]
+macro_rules! filelog {
+    ($msg:expr, $filehandleopt:expr) => {
+        if let Some(handle) = $filehandleopt {
+            let mut guarded_filehandle = handle.lock().expect("Mutex unlock failure - Panic!");
+            (*guarded_filehandle).write($msg.as_bytes()).ok();
+        }
+    };
+}

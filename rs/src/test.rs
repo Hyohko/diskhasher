@@ -27,7 +27,9 @@
 mod canonicalize_path {}
 
 mod path_matches_regex {
-    use crate::*;
+    use crate::util::path_matches_regex;
+    use regex::Regex;
+    use std::path::PathBuf;
 
     #[test]
     fn good_matches() {
@@ -58,7 +60,10 @@ mod path_matches_regex {
 }
 
 mod splitline {
-    use crate::*;
+    use crate::util::split_hashfile_line;
+    use std::fs::{canonicalize, File};
+    use std::path::PathBuf;
+
     #[test]
     fn empty() {
         let newline: String = "".to_string();
@@ -107,7 +112,7 @@ mod splitline {
     fn checklengths() {
         let good_path = "./exists.txt".to_string();
         assert!(File::create(&good_path).is_ok());
-        let good_path_display: PathBuf = fs::canonicalize(&good_path).unwrap();
+        let good_path_display: PathBuf = canonicalize(&good_path).unwrap();
 
         let newlines: Vec<String> = vec![
             format!("abcdef1234567890abcdef1234567890 {good_path}"), //md5
@@ -128,7 +133,7 @@ mod splitline {
 
 mod implements_traits {
     use crate::enums::HashAlg;
-    use crate::Hasher;
+    use crate::hasher::Hasher;
 
     #[test]
     fn debug_print() {

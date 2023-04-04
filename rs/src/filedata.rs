@@ -23,7 +23,8 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
-use {crate::HasherError, std::mem, std::path::PathBuf, walkdir::DirEntry};
+
+use {crate::error::HasherError, std::mem::take, std::path::PathBuf, walkdir::DirEntry};
 
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::MetadataExt;
@@ -81,7 +82,7 @@ impl FileData {
     }
     /// Permits setting of the hash value during computation
     pub fn set_hash(&mut self, hash: &mut String) {
-        self.expected_hash = mem::take(hash);
+        self.expected_hash = take(hash);
     }
 }
 
