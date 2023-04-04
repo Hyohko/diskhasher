@@ -127,7 +127,8 @@ mod splitline {
 }
 
 mod implements_traits {
-    use crate::*;
+    use crate::enums::HashAlg;
+    use crate::Hasher;
 
     #[test]
     fn debug_print() {

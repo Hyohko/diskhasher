@@ -29,7 +29,7 @@ extern crate log;
 
 use {
     clap::Parser,
-    diskhasher::{FileSortLogic, HashAlg, Hasher},
+    diskhasher::{enums::FileSortLogic, enums::HashAlg, Hasher},
     log::LevelFilter,
 };
 

@@ -23,6 +23,7 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
+pub mod enums;
 mod error;
 mod filedata;
 mod util;
@@ -31,16 +32,14 @@ extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
-use crate::{error::HasherError, filedata::FileData, util::*};
+use crate::{enums::*, error::HasherError, filedata::FileData, util::*};
 
 use {
-    clap::ValueEnum,
     digest::DynDigest,
     indicatif::{MultiProgress, ProgressBar, ProgressFinish, ProgressStyle},
     regex::Regex,
     std::cmp::Reverse,
     std::collections::HashMap,
-    std::fmt::{self, Display, Formatter},
     std::fs,
     std::fs::{File, OpenOptions},
     std::io::{BufRead, BufReader, Read, Write},
@@ -59,41 +58,6 @@ use std::os::unix::fs::OpenOptionsExt;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::OpenOptionsExt;
-
-/// Supported hash algorithms
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum HashAlg {
-    MD5,
-    SHA1,
-    SHA224,
-    SHA256,
-    SHA384,
-    SHA512,
-}
-
-impl Display for HashAlg {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::MD5 => write!(f, "MD5"),
-            Self::SHA1 => write!(f, "SHA1"),
-            Self::SHA224 => write!(f, "SHA224"),
-            Self::SHA256 => write!(f, "SHA256"),
-            Self::SHA384 => write!(f, "SHA384"),
-            Self::SHA512 => write!(f, "SHA512"),
-        }
-    }
-}
-
-/// Option to command line args - sort files from WalkDir
-/// by LargestFirst, SmallestFirst, or in InodeOrder
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub enum FileSortLogic {
-    LargestFirst,
-    SmallestFirst,
-    #[cfg(target_os = "linux")]
-    InodeOrder,
-}
 
 /// This is our primary object, and we can construct one for every
 /// root directory we want to inspect.
