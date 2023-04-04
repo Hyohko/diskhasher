@@ -24,7 +24,11 @@
     <https://www.gnu.org/licenses/>.
 */
 
-use {crate::error::HasherError, std::mem::take, std::path::PathBuf, walkdir::DirEntry};
+use {
+    crate::error::HasherError,
+    std::{mem::take, path::PathBuf},
+    walkdir::DirEntry,
+};
 
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::MetadataExt;
@@ -42,19 +46,11 @@ pub struct FileData {
 
 impl FileData {
     /// FileData constructor
-    #[cfg(not(target_os = "linux"))]
-    pub fn new(size: u64, path: PathBuf) -> Self {
+    pub fn new(size: u64, path: PathBuf, #[cfg(target_os = "linux")] inode: u64) -> Self {
         Self {
             size,
             path,
-            expected_hash: String::new(),
-        }
-    }
-    #[cfg(target_os = "linux")]
-    pub fn new(size: u64, path: PathBuf, inode: u64) -> Self {
-        Self {
-            size,
-            path,
+            #[cfg(target_os = "linux")]
             inode,
             expected_hash: String::new(),
         }
@@ -91,11 +87,11 @@ impl TryFrom<DirEntry> for FileData {
     fn try_from(entry: DirEntry) -> Result<Self, HasherError> {
         let path = entry.path().to_path_buf();
         let metadata = path.metadata()?;
-
-        #[cfg(not(target_os = "linux"))]
-        return Ok(Self::new(metadata.len(), path));
-
-        #[cfg(target_os = "linux")]
-        return Ok(Self::new(metadata.len(), path, metadata.ino()));
+        return Ok(Self::new(
+            metadata.len(),
+            path,
+            #[cfg(target_os = "linux")]
+            metadata.ino(),
+        ));
     }
 }

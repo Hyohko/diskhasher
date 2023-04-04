@@ -23,20 +23,26 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
+#[cfg(target_os = "linux")]
+use crate::constants::ALIGNMENT;
+
 use crate::{
-    constants::{ALIGNMENT, O_FLAGS, SIZE_128MB, SIZE_2MB},
+    constants::{O_FLAGS, SIZE_128MB, SIZE_2MB},
     enums::HashAlg,
     error::HasherError,
     filedata::FileData,
 };
+// Macros at crate top-level
 use crate::{filelog, hashobj, known_zero_hash};
 
 use {
     digest::DynDigest,
     indicatif::{MultiProgress, ProgressBar, ProgressStyle},
-    std::fs::{File, OpenOptions},
-    std::io::{Read, Write},
-    std::sync::{Arc, Mutex},
+    std::{
+        fs::{File, OpenOptions},
+        io::{Read, Write},
+        sync::{Arc, Mutex},
+    },
 };
 
 #[cfg(target_os = "linux")]
@@ -44,6 +50,26 @@ use {aligned_box::AlignedBox, std::os::unix::fs::OpenOptionsExt};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::OpenOptionsExt;
+
+macro_rules! read_all_into_hasher {
+    ($fd:expr, $hash:expr) => {
+        #[cfg(target_os = "windows")]
+        let mut buf = vec![0_u8; SIZE_2MB].into_boxed_slice();
+        #[cfg(target_os = "linux")]
+        let mut buf = AlignedBox::<[u8]>::slice_from_value(ALIGNMENT, SIZE_2MB, 0_u8)
+            .expect("Heap read buffer allocation failed, panic");
+        let mut read_count: usize;
+        loop {
+            {
+                read_count = $fd.read(&mut buf[..SIZE_2MB])?;
+                $hash.update(&buf[..read_count]);
+            }
+            if read_count < SIZE_2MB {
+                break;
+            }
+        }
+    };
+}
 
 /// Compute the hash
 fn hash_file(
@@ -57,14 +83,6 @@ fn hash_file(
     }
 
     let mut hasher: Box<dyn DynDigest> = hashobj!(alg);
-    let mut read_count: usize;
-
-    #[cfg(target_os = "windows")]
-    let mut buffer = vec![0_u8; SIZE_2MB].into_boxed_slice();
-    #[cfg(target_os = "linux")]
-    let mut buffer = AlignedBox::<[u8]>::slice_from_value(ALIGNMENT, SIZE_2MB, 0_u8)
-        .expect("Heap read buffer allocation failed, panic");
-
     // the unwrap will not fail if you don't monkey with the constants that make up O_FLAGS
     let mut file = OpenOptions::new()
         .read(true)
@@ -76,40 +94,28 @@ fn hash_file(
         .open(fdata.path())?;
 
     if let Some(mp) = opt_mp {
-        if fdata.size() > SIZE_128MB as u64 {
+        if fdata.size() >= SIZE_128MB as u64 {
             let style: ProgressStyle = ProgressStyle::with_template(
                 "[{elapsed_precise}] \
-            ({percent:3}%) \
-            {bar:30.cyan/blue} \
-            {bytes:>10.green}/{total_bytes:<10.green} \
-            {msg}",
+                ({percent:3}%) \
+                {bar:30.cyan/blue} \
+                {bytes:>10.green}/{total_bytes:<10.green} \
+                {msg}",
             )?
             .progress_chars("##-");
             let bar = mp.add(ProgressBar::new(fdata.size()).with_style(style));
             bar.set_message(format!("{:?}", fdata.path().file_name().unwrap()));
-            loop {
-                {
-                    read_count = bar.wrap_read(&file).read(&mut buffer[..SIZE_2MB])?;
-                    hasher.update(&buffer[..read_count]);
-                }
-                if read_count < SIZE_2MB {
-                    break;
-                }
-            }
+            read_all_into_hasher!(bar.wrap_read(&file), hasher);
             bar.finish_and_clear();
             mp.remove(&bar);
             drop(bar);
+        } else {
+            // smaller than 128 MB
+            read_all_into_hasher!(file, hasher);
         }
     } else {
-        loop {
-            {
-                read_count = file.read(&mut buffer[..SIZE_2MB])?;
-                hasher.update(&buffer[..read_count]);
-            }
-            if read_count < SIZE_2MB {
-                break;
-            }
-        }
+        // No progress bars
+        read_all_into_hasher!(file, hasher);
     }
     Ok(hex::encode(hasher.finalize()))
 }
