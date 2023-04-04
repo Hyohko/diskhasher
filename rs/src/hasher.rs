@@ -305,7 +305,16 @@ impl Hasher {
         let loghandle = self.loghandle.clone();
         let bar = bar.clone();
         self.pool.execute(move || {
-            perform_hash_threadfunc(fd_clone, alg, force, verbose, loghandle, mp, bar).ok();
+            perform_hash_threadfunc(
+                fd_clone,
+                alg,
+                force,
+                verbose,
+                loghandle,
+                Some(mp),
+                Some(bar),
+            )
+            .ok();
         });
     }
 
