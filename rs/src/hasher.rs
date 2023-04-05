@@ -121,17 +121,16 @@ impl Hasher {
         };
 
         // As much as I hate this construction, there's no more efficient
-        // way to make it idiomatic Rust
+        // way to make it idiomatic Rust b/c we want to propagate
+        // any errors from File::create
         let loghandle = match logfile {
             Some(v) => {
-                info!("[+] Logging failed hashes to {v}");
-                let handle = File::create(&v)?;
-                Some(Arc::new(Mutex::new(handle)))
+                info!("[+] Logging hashes to {v}");
+                Some(Arc::new(Mutex::new(File::create(&v)?)))
             }
             None => None,
         };
 
-        // .thread_stack_size(STACKSIZE_8MB) // change stack size only if necessary
         let mp = MultiProgress::new();
         Ok(Self {
             pool: threadpool::Builder::new()
@@ -152,7 +151,7 @@ impl Hasher {
     /// The --force option will force hash computation even if no hashfiles
     /// match our pattern, and --verbose will print all results to STDOUT.
     /// We can choose the order in which files will be computed: largest-first,
-    /// smallest-first, or in inode order (which may be faster for disk I/O)
+    /// smallest-first, or in inode order (which may be faster for disk I/O).
     pub fn run(
         &mut self,
         force: bool,
@@ -161,30 +160,35 @@ impl Hasher {
     ) -> Result<(), HasherError> {
         let file_vec = self.recursive_dir()?;
         self.identify_hashfiles(file_vec, force)?;
-        if let Err(err) = self.load_hashes() {
+        self.load_hashes().or_else(|err| {
             if force {
                 warn!("[+] No valid hashfile, but --force flag set");
+                Ok(())
             } else {
-                return Err(err);
+                Err(err)
             }
-        }
+        })?;
+
         self.sort_checked_files(sort_order);
         self.start_hash_threads(force, verbose)?;
         self.pool.join();
         Ok(())
     }
 
+    /// Read the list of hashfiles and extract each hash inside them
     fn load_hashes(&mut self) -> Result<(), HasherError> {
         self.hashmap.reserve(self.checkedfiles.len());
 
         let spinner = self.create_spinner(String::from("[+] Parsing hashes from hashfiles"))?;
-        for f in &self.hashfiles {
-            let mut hashpath = f.path().clone();
-            hashpath.pop();
+        for fd in &self.hashfiles {
+            let hashpath = fd.path().parent().ok_or(HasherError::File {
+                why: format!("Hashfile parent directory not found"),
+                path: fd.path_string(),
+            })?;
 
-            let file = File::open(f.path()).map_err(|err| HasherError::File {
+            let file = File::open(fd.path()).map_err(|err| HasherError::File {
                 why: format!("{err} : Hashfile cannot be opened"),
-                path: f.path_string(),
+                path: fd.path_string(),
             })?;
 
             let reader = BufReader::new(file);
@@ -212,6 +216,7 @@ impl Hasher {
         }
     }
 
+    /// Generate a standard spinner for pending jobs with an indeterminate end
     fn create_spinner(&self, msg: String) -> Result<ProgressBar, HasherError> {
         let spinner_style =
             ProgressStyle::with_template("[{spinner:.cyan.bold}] (# {pos:.green}) {wide_msg}")?
@@ -226,12 +231,12 @@ impl Hasher {
         Ok(spinner)
     }
 
+    /// Split the vector of files from recursive_dir into hash files and non-hashfiles.
     fn identify_hashfiles(
         &mut self,
         file_vec: Vec<FileData>,
         force: bool,
     ) -> Result<(), HasherError> {
-        // Split the file vec into hash files and non-hashfiles
         info!("[+] Identifying hashfiles");
         (self.hashfiles, self.checkedfiles) = file_vec
             .into_iter()
@@ -249,6 +254,8 @@ impl Hasher {
         Ok(())
     }
 
+    /// Recursively walk the root directory and identify all regular files. Ignore
+    /// all files and directories for which we do not have permission to read.
     fn recursive_dir(&mut self) -> Result<Vec<FileData>, HasherError> {
         let spinner = self.create_spinner(format!("[+] Recursing through {:?}", self.root))?;
         let file_vec: Vec<FileData> = spinner
@@ -262,6 +269,7 @@ impl Hasher {
         Ok(file_vec)
     }
 
+    /// Sort files by size or inode-order (Linux only)
     fn sort_checked_files(&mut self, sort_order: FileSortLogic) {
         // since we are popping off the last element of the vec to process it, in the instance
         // of Largest-First hashing, the largest needs to be at the end of the vec, and
@@ -285,6 +293,7 @@ impl Hasher {
         }
     }
 
+    /// Assign a single hash job to one of the threads in our threadpool
     fn spawn_single_job(
         &mut self,
         file_data: &FileData,
@@ -320,6 +329,7 @@ impl Hasher {
         });
     }
 
+    /// For each file collected, spawn a single hash job.
     fn start_hash_threads(&mut self, force: bool, verbose: bool) -> Result<(), HasherError> {
         info!(
             "[+] Checking hashes - spinning up {} worker threads",

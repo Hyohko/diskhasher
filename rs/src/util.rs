@@ -39,10 +39,6 @@ use {
 pub fn canonicalize_filepath(file_path: &str, hashpath: &Path) -> Result<PathBuf, HasherError> {
     let mut file_path_buf: PathBuf = Path::new(&file_path).to_path_buf();
     if file_path_buf.is_relative() {
-        //if !file_path.starts_with("./") {
-        //    let new_file_path: String = format!("./{file_path}");
-        //    file_path_buf = Path::new(&new_file_path).to_path_buf();
-        //}
         file_path_buf = hashpath.join(&file_path_buf);
         file_path_buf = canonicalize(file_path_buf)?;
     }
