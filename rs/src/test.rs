@@ -34,7 +34,7 @@ mod canonicalize_path {
 
     #[test]
     fn relative_path_not_exists() {
-        let rel: &str = "does_not_exist.txt";
+        let rel: &str = "rel_does_not_exist.txt";
         let base: PathBuf = env::current_dir().unwrap();
         let val = canonicalize_filepath(rel, &base);
         assert!(val.is_err());
@@ -42,7 +42,7 @@ mod canonicalize_path {
 
     #[test]
     fn relative_path_exists() {
-        let rel: &str = "exists.txt";
+        let rel: &str = "rel_exists.txt";
         assert!(File::create(&rel).is_ok());
         let base: PathBuf = env::current_dir().unwrap();
         let expected = base.clone().join(rel);
@@ -54,7 +54,7 @@ mod canonicalize_path {
 
     #[test]
     fn absolute_path_not_exists() {
-        let rel: &str = "does_not_exist.txt";
+        let rel: &str = "abs_does_not_exist.txt";
         let base: PathBuf = env::current_dir().unwrap().join(rel);
         let absolute = Path::new(&base);
         let val = canonicalize_filepath(&absolute.display().to_string(), &base);
@@ -63,7 +63,7 @@ mod canonicalize_path {
 
     #[test]
     fn absolute_path_exists() {
-        let rel: &str = "exists.txt";
+        let rel: &str = "abs_exists.txt";
         let base: PathBuf = env::current_dir().unwrap().join(rel);
         let absolute = Path::new(&base);
         assert!(File::create(&absolute).is_ok());
@@ -173,6 +173,7 @@ mod splitline {
         for case in newlines {
             let hashpath: PathBuf = PathBuf::new();
             let result = split_hashfile_line(&case, &hashpath);
+            println!("{result:?}");
             assert!(result.is_ok());
             assert_eq!(result.unwrap().0, good_path_display);
         }

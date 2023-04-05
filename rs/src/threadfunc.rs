@@ -71,19 +71,22 @@ macro_rules! read_all_into_hasher {
     };
 }
 
-/// Compute the hash
+/// Compute the hash of a single file, given the following conditions:
+/// 1. If the file length is zero, return immediately as zero-length hashes are already known
+/// 2. If the indicatif::MultiProgress option is set
+///  * If the file size equals or exceeds 128 MB, show a progress bar
+/// 3. In all cases, read the file in 2MB chunks and compute the hash as given by alg
 fn hash_file(
     fdata: &FileData,
     alg: HashAlg,
     opt_mp: &Option<MultiProgress>,
 ) -> Result<String, HasherError> {
-    // If the file size is zero, then the hashes are already known. Don't bother computing them.
     if fdata.size() == 0 {
         return Ok(known_zero_hash!(alg));
     }
 
     let mut hasher: Box<dyn DynDigest> = hashobj!(alg);
-    // the unwrap will not fail if you don't monkey with the constants that make up O_FLAGS
+    // the try_into will not fail if you don't monkey with the constants that make up O_FLAGS
     let mut file = OpenOptions::new()
         .read(true)
         .custom_flags(
@@ -120,6 +123,8 @@ fn hash_file(
     Ok(hex::encode(hasher.finalize()))
 }
 
+/// Calls hash_file and reports the success or failure (if --force is false),
+/// logging results to file if a valid file handle is passed in.
 pub fn perform_hash_threadfunc(
     fdata: FileData,
     alg: HashAlg,
@@ -136,7 +141,9 @@ pub fn perform_hash_threadfunc(
     let result: String;
     if force {
         result = format!(
-            "[*] Checksum value :\n\t{:?}\n\tHash         : {:?}\n",
+            "[*] Checksum value :\n\
+            \t{:?}\n\
+            \tHash         : {:?}\n",
             fdata.path(),
             actual_hash
         );
@@ -150,9 +157,12 @@ pub fn perform_hash_threadfunc(
     } else {
         // Compare
         if fdata.hash() == &actual_hash {
+            // Success case - hash matches
             if verbose {
                 result = format!(
-                    "[+] Checksum passed:\n\t{:?}\n\tActual hash  : {:?}\n",
+                    "[+] Checksum passed:\n\
+                    \t{:?}\n\
+                    \tActual hash  : {:?}\n",
                     fdata.path(),
                     actual_hash
                 );
@@ -162,8 +172,12 @@ pub fn perform_hash_threadfunc(
                 filelog!(result, loghandle);
             }
         } else {
+            // Failure case - hash does not match
             result = format!(
-                "[-] Checksum failed:\n\t{:?}\n\tExpected hash: {:?}\n\tActual hash  : {:?}\n",
+                "[-] Checksum failed:\n\
+                \t{:?}\n\
+                \tExpected hash: {:?}\n\
+                \tActual hash  : {:?}\n",
                 fdata.path(),
                 fdata.hash(),
                 actual_hash
