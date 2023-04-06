@@ -116,6 +116,13 @@ struct Arguments {
     /// be warned that this may make the display unreadable.
     #[clap(short, long)]
     pub jobs: Option<usize>,
+    /// [Optional] create hashfile in a similar format to md5sum, etc.
+    ///
+    /// Writes a hashfile in the root directory as given by the --dir
+    /// parameter, matching the format that md5sum, sha1sum, etc. use, e.g.
+    /// <hash_hexstring> <relative_path_to_file_from_root>.
+    #[clap(short, long)]
+    pub generate_hashfile: Option<String>,
 }
 
 /// Main function
@@ -135,15 +142,16 @@ fn main() {
         args.pattern,
         args.logfile,
         args.jobs,
+        args.generate_hashfile,
     ) {
         Ok(v) => v,
         Err(err) => {
-            error!("[!] Hasher constructor error => {err}");
+            error!("[!] Init: {err}");
             return;
         }
     };
     if let Err(err) = myhasher.run(args.force, args.verbose, args.sorting) {
-        error!("[!] Hasher runtime failure => {err}");
+        error!("[!] Runtime: {err}");
         return;
     };
     info!("[+] Done");

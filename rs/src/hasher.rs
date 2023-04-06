@@ -28,7 +28,7 @@ use crate::{
     enums::{FileSortLogic, HashAlg},
     error::HasherError,
     filedata::FileData,
-    threadfunc::perform_hash_threadfunc,
+    threadfunc::{perform_hash_threadfunc, ThreadFuncArgs},
     util::{path_matches_regex, split_hashfile_line},
 };
 
@@ -50,6 +50,21 @@ use {
     walkdir::WalkDir,
 };
 
+// As much as I hate this construction, there's no more efficient
+// way to make it idiomatic Rust b/c we want to propagate
+// any errors from File::create
+macro_rules! opt_open_file {
+    ($logmsg:expr, $opt_filename:expr) => {
+        match $opt_filename {
+            Some(v) => {
+                info!("[+] {} -> {v}", $logmsg);
+                Some(Arc::new(Mutex::new(File::create(&v)?)))
+            }
+            None => None,
+        }
+    };
+}
+
 /// This is our primary object, and we can construct one for every
 /// root directory we want to inspect.
 #[derive(Debug, Clone)]
@@ -63,6 +78,7 @@ pub struct Hasher {
     hashmap: HashMap<PathBuf, String>,
     loghandle: Option<Arc<Mutex<File>>>,
     mp: MultiProgress, // is an Arc type
+    genhash_handle: Option<Arc<Mutex<File>>>,
 }
 
 impl Hasher {
@@ -76,9 +92,17 @@ impl Hasher {
         hashfile_pattern: Option<String>,
         logfile: Option<String>,
         jobs: Option<usize>,
+        gen_hashfile: Option<String>,
     ) -> Result<Self, HasherError> {
         let hash_regex: Regex;
         if let Some(pattern) = hashfile_pattern {
+            if gen_hashfile.is_some() {
+                return Err(HasherError::Argument {
+                    why: String::from(
+                        "Args hashfile pattern (-f) and generate hashfile (-g) are mutually exclusive",
+                    ),
+                });
+            }
             hash_regex = Regex::new(&pattern).map_err(|err| HasherError::Regex {
                 why: format!("'{pattern}' returns error {err}"),
             })?;
@@ -120,16 +144,10 @@ impl Hasher {
             avail_threads
         };
 
-        // As much as I hate this construction, there's no more efficient
-        // way to make it idiomatic Rust b/c we want to propagate
-        // any errors from File::create
-        let loghandle = match logfile {
-            Some(v) => {
-                info!("[+] Logging hashes to {v}");
-                Some(Arc::new(Mutex::new(File::create(&v)?)))
-            }
-            None => None,
-        };
+        let loghandle = opt_open_file!("Logging hash results", logfile);
+        let genhash_path =
+            gen_hashfile.map_or_else(|| None, |v| Some(root.join(v).display().to_string()));
+        let genhash_handle = opt_open_file!("Generating hashfile", genhash_path);
 
         let mp = MultiProgress::new();
         Ok(Self {
@@ -144,6 +162,7 @@ impl Hasher {
             hashmap: [].into(),
             loghandle,
             mp,
+            genhash_handle,
         })
     }
 
@@ -309,23 +328,24 @@ impl Hasher {
             bar.inc(1);
             return;
         }
-
+        let gen_hashfile_dir = self
+            .genhash_handle
+            .as_ref()
+            .map_or_else(|| None, |_v| Some(self.root.clone()));
+        let moved_args = ThreadFuncArgs {
+            fdata: fd_clone,
+            alg: self.alg,
+            force,
+            verbose,
+            loghandle: self.loghandle.clone(),
+            opt_mp: Some(self.mp.clone()),
+            opt_progress: Some(bar.clone()),
+            gen_hashfile: self.genhash_handle.clone(),
+            gen_hashfile_dir,
+        };
         // after this point, avoid more stdout/stderr prints
-        let alg = self.alg;
-        let mp = self.mp.clone();
-        let loghandle = self.loghandle.clone();
-        let bar = bar.clone();
         self.pool.execute(move || {
-            perform_hash_threadfunc(
-                fd_clone,
-                alg,
-                force,
-                verbose,
-                loghandle,
-                Some(mp),
-                Some(bar),
-            )
-            .ok();
+            perform_hash_threadfunc(moved_args).ok();
         });
     }
 

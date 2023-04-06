@@ -41,6 +41,7 @@ use {
     std::{
         fs::{File, OpenOptions},
         io::{Read, Write},
+        path::{Path, PathBuf},
         sync::{Arc, Mutex},
     },
 };
@@ -50,6 +51,19 @@ use {aligned_box::AlignedBox, std::os::unix::fs::OpenOptionsExt};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::OpenOptionsExt;
+
+// For the ease of refactoring the threadfunc
+pub struct ThreadFuncArgs {
+    pub fdata: FileData,
+    pub alg: HashAlg,
+    pub force: bool,
+    pub verbose: bool,
+    pub loghandle: Option<Arc<Mutex<File>>>,
+    pub opt_mp: Option<MultiProgress>,     // is already an Arc
+    pub opt_progress: Option<ProgressBar>, // is already an Arc
+    pub gen_hashfile: Option<Arc<Mutex<File>>>,
+    pub gen_hashfile_dir: Option<PathBuf>,
+}
 
 macro_rules! read_all_into_hasher {
     ($fd:expr, $hash:expr) => {
@@ -125,51 +139,49 @@ fn hash_file(
 
 /// Calls hash_file and reports the success or failure (if --force is false),
 /// logging results to file if a valid file handle is passed in.
-pub fn perform_hash_threadfunc(
-    fdata: FileData,
-    alg: HashAlg,
-    force: bool,
-    verbose: bool,
-    loghandle: Option<Arc<Mutex<File>>>,
-    opt_mp: Option<MultiProgress>,     // is already an Arc
-    opt_progress: Option<ProgressBar>, // is already an Arc
-) -> Result<(), HasherError> {
-    let actual_hash = hash_file(&fdata, alg, &opt_mp)?;
-    if let Some(tp) = opt_progress {
+pub fn perform_hash_threadfunc(args: ThreadFuncArgs) -> Result<(), HasherError> {
+    let actual_hash = hash_file(&args.fdata, args.alg, &args.opt_mp)?;
+    if let Some(tp) = args.opt_progress {
         tp.inc(1);
     }
+    if let Some(root_dir) = &args.gen_hashfile_dir {
+        let stripped_path = args.fdata.path().strip_prefix(root_dir)?;
+        let joined_path = Path::new("./").join(stripped_path).display().to_string();
+        filelog!(format!("{actual_hash} {joined_path}\n"), args.gen_hashfile);
+    }
     let result: String;
-    if force {
+    // If we are saving the hashes off in a hashfile of our own, don't print anything
+    if args.force {
         result = format!(
             "[*] Checksum value :\n\
             \t{:?}\n\
             \tHash         : {:?}\n",
-            fdata.path(),
+            args.fdata.path(),
             actual_hash
         );
         // omitting zero-length hashes from console print in FORCE mode unless verbose
-        if fdata.size() > 0 || verbose {
-            if let Some(mp) = opt_mp {
+        if (args.fdata.size() > 0 || args.verbose) && args.gen_hashfile_dir.is_none() {
+            if let Some(mp) = args.opt_mp {
                 mp.println(&result).ok();
             }
         }
-        filelog!(result, loghandle);
+        filelog!(result, args.loghandle);
     } else {
         // Compare
-        if fdata.hash() == &actual_hash {
+        if args.fdata.hash() == &actual_hash {
             // Success case - hash matches
-            if verbose {
+            if args.verbose {
                 result = format!(
                     "[+] Checksum passed:\n\
                     \t{:?}\n\
                     \tActual hash  : {:?}\n",
-                    fdata.path(),
+                    args.fdata.path(),
                     actual_hash
                 );
-                if let Some(mp) = opt_mp {
+                if let Some(mp) = args.opt_mp {
                     mp.println(&result).ok();
                 }
-                filelog!(result, loghandle);
+                filelog!(result, args.loghandle);
             }
         } else {
             // Failure case - hash does not match
@@ -178,14 +190,14 @@ pub fn perform_hash_threadfunc(
                 \t{:?}\n\
                 \tExpected hash: {:?}\n\
                 \tActual hash  : {:?}\n",
-                fdata.path(),
-                fdata.hash(),
+                args.fdata.path(),
+                args.fdata.hash(),
                 actual_hash
             );
-            if let Some(mp) = opt_mp {
+            if let Some(mp) = args.opt_mp {
                 mp.println(&result).ok();
             }
-            filelog!(result, loghandle);
+            filelog!(result, args.loghandle);
         }
     }
     Ok(())
