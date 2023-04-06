@@ -23,9 +23,10 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
-use {custom_error::custom_error, indicatif::style::TemplateError};
+use {custom_error::custom_error, indicatif::style::TemplateError, std::path::StripPrefixError};
 
 custom_error! {pub HasherError
+    Argument{why: String} = "CLI argument error => {why}",
     Regex{why: String} = "Regular expression failed => {why}",
     File{path: String, why: String} = "File/Directory error => '{path}': {why}",
     Hash{why: String} = "Hash error => {why}",
@@ -48,6 +49,14 @@ impl From<std::io::Error> for HasherError {
     fn from(error: std::io::Error) -> Self {
         HasherError::Io {
             why: format!("{:?} => {error:?}", error.kind()),
+        }
+    }
+}
+
+impl From<StripPrefixError> for HasherError {
+    fn from(error: StripPrefixError) -> Self {
+        HasherError::Style {
+            why: format!("{error:?}"),
         }
     }
 }
