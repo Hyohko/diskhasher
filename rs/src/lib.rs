@@ -24,10 +24,10 @@
     <https://www.gnu.org/licenses/>.
 */
 mod constants;
-pub mod enums;
+mod enums;
 mod error;
 mod filedata;
-pub mod hasher;
+mod hasher;
 mod macros;
 mod threadfunc;
 mod util;
@@ -35,6 +35,12 @@ mod util;
 extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
+
+// The only exportable functionality we expose to any main function
+pub use crate::{
+    enums::{FileSortLogic, HashAlg},
+    hasher::Hasher,
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 /// TESTS
