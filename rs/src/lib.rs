@@ -1,5 +1,5 @@
 /*
-    DISKHASHER v0.2 - 2023 by Hyohko
+    DISKHASHER v0.3 - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -23,11 +23,12 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
+mod cli;
 mod constants;
-pub mod enums;
+mod enums;
 mod error;
 mod filedata;
-pub mod hasher;
+mod hasher;
 mod macros;
 mod threadfunc;
 mod util;
@@ -35,6 +36,13 @@ mod util;
 extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
+
+// The only exportable functionality we expose to any main function
+pub use crate::{
+    cli::{parse_cli, Arguments},
+    enums::{FileSortLogic, HashAlg},
+    hasher::Hasher,
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 /// TESTS

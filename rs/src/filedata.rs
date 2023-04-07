@@ -1,5 +1,5 @@
 /*
-    DISKHASHER v0.2 - 2023 by Hyohko
+    DISKHASHER v0.3 - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -45,8 +45,9 @@ pub struct FileData {
 }
 
 impl FileData {
-    /// FileData constructor
-    pub fn new(size: u64, path: PathBuf, #[cfg(target_os = "linux")] inode: u64) -> Self {
+    /// FileData constructor - not public, only referenced in
+    /// TryFrom<DirEntry>
+    fn new(size: u64, path: PathBuf, #[cfg(target_os = "linux")] inode: u64) -> Self {
         Self {
             size,
             path,

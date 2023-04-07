@@ -1,5 +1,5 @@
 /*
-    DISKHASHER v0.2 - 2023 by Hyohko
+    DISKHASHER v0.3 - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -23,6 +23,21 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
+
+mod hashfile {
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn replace_prefix() {
+        let file_to_fix = Path::new("/path/to/this/file");
+        let root_dir = Path::new("/path/to");
+        let fixed_path = file_to_fix.strip_prefix(root_dir);
+        assert!(fixed_path.is_ok());
+        let result_str = format!("{}", fixed_path.unwrap().display());
+        let expected_str = String::from("this/file");
+        assert_eq!(result_str, expected_str);
+    }
+}
 
 mod canonicalize_path {
     use crate::util::canonicalize_filepath;
@@ -188,14 +203,14 @@ mod implements_traits {
     #[test]
     fn debug_print() {
         let hasher: Hasher =
-            Hasher::new(HashAlg::MD5, String::from("./"), None, None, None).unwrap();
+            Hasher::new(HashAlg::MD5, String::from("./"), None, None, None, None).unwrap();
         println!("{:?}", hasher);
     }
 
     #[test]
     fn can_clone() {
         let hasher: Hasher =
-            Hasher::new(HashAlg::MD5, String::from("./"), None, None, None).unwrap();
+            Hasher::new(HashAlg::MD5, String::from("./"), None, None, None, None).unwrap();
         let _myclone = hasher.clone();
     }
 }
