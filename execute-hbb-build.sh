@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# DISKHASHER v0.2 - 2023 by Hyohko
+# DISKHASHER v0.3 - 2023 by Hyohko
 
 ##################################
 #   GPLv3 NOTICE AND DISCLAIMER
