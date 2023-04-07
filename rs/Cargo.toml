@@ -31,7 +31,7 @@ computes cryptographic checksums for every \
 file in a directory.\nSupports MD5, SHA1, SHA224, \
 SHA256, SHA384, and SHA512"""
 authors = ["Hyohko"]
-version = "0.3.0"
+version = "0.3.2"
 edition = "2021"
 license = "GPLv3"
 repository = "https://github.com/Hyohko/diskhasher"
