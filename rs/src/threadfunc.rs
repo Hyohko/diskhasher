@@ -159,7 +159,8 @@ pub fn perform_hash_threadfunc(args: ThreadFuncArgs) -> Result<(), HasherError> 
             args.fdata.path(),
             actual_hash
         );
-        // omitting zero-length hashes from console print in FORCE mode unless verbose
+        // omitting zero-length hashes from console print in FORCE mode unless verbose - if
+        // and only if we are not generating a new hashfile (cuz that's unnecessary)
         if (args.fdata.size() > 0 || args.verbose) && args.gen_hashfile_dir.is_none() {
             if let Some(mp) = args.opt_mp {
                 mp.println(&result).ok();
