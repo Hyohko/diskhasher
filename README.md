@@ -27,11 +27,11 @@ cd /path/to/diskhasher/
 
 Print the help/usage statement (short form):
 
-```bash
-$ ./diskhasher --help
+```
+$ ./diskhasher -h
 Recursive directory file hasher - computes cryptographic checksums for every
-file in a directory.
-Supports MD5, SHA1, SHA224, SHA256, SHA384, and SHA512
+file in a directory. Supports a variety of hash algorithms, see --help for
+details
 
 Usage: diskhasher [OPTIONS] --dir <directory> --alg <algorithm>
 
@@ -40,7 +40,7 @@ Options:
           Path to the directory we want to validate
   -a, --alg <algorithm>
           Algorithm to use [possible values: md5, sha1, sha224, sha256, sha384,
-          sha512]
+          sha512, sha3-224, sha3-256, sha3-384, sha3-512]
   -f, --file-pattern <pattern>
           [Optional] Regex pattern used to identify hashfiles (e.g. md5sum*.txt)
   -x, --force
@@ -64,11 +64,11 @@ Options:
 
 Print the help/usage statement (long form):
 
-```bash
+```
 $ ./diskhasher --help
 Recursive directory file hasher - computes cryptographic checksums for every
-file in a directory.
-Supports MD5, SHA1, SHA224, SHA256, SHA384, and SHA512
+file in a directory. Supports a variety of hash algorithms, see --help for
+details
 
 Usage: diskhasher [OPTIONS] --dir <directory> --alg <algorithm>
 
@@ -79,19 +79,25 @@ Options:
           non-file entities will be ignored
 
   -a, --alg <algorithm>
-          Diskhasher currently supports 7 hashing algorithms: MD5, SHA1, SHA224,
-          SHA256, SHA284, and SHA512. Users are encouraged to use more secure
-          algorithms where possible, although MD5 and SHA1 are included for
-          backwards compatibility purposes, despite the fact that they are
-          cryptographically broken and untrustworthy
+          Diskhasher currently supports multiple hashing algorithms. Users are
+          encouraged to use more secure algorithms where possible, and although
+          MD5 and SHA1 are included for backwards compatibility purposes, users
+          should
+                              be aware that they are cryptographically broken
+          and untrustworthy for more
+                              than basic error detection.
 
           Possible values:
-          - md5:    MD5 (insecure)
-          - sha1:   SHA1 (insecure)
-          - sha224: SHA224
-          - sha256: SHA256
-          - sha384: SHA384
-          - sha512: SHA512
+          - md5:      MD5 (insecure)
+          - sha1:     SHA1 (insecure)
+          - sha224:   SHA224
+          - sha256:   SHA256
+          - sha384:   SHA384
+          - sha512:   SHA512
+          - sha3-224: SHA3-224
+          - sha3-256: SHA3-256
+          - sha3-384: SHA3-384
+          - sha3-512: SHA3-512
 
   -f, --file-pattern <pattern>
           [Optional] This regular expression is used to identify hashfiles, i.e.
