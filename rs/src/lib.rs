@@ -23,6 +23,7 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
+mod cli;
 mod constants;
 mod enums;
 mod error;
@@ -38,6 +39,7 @@ extern crate log;
 
 // The only exportable functionality we expose to any main function
 pub use crate::{
+    cli::{parse_cli, Arguments},
     enums::{FileSortLogic, HashAlg},
     hasher::Hasher,
 };
