@@ -112,8 +112,8 @@ pub fn parse_cli() -> Result<Arguments, clap::error::Error> {
                 .long_help(
                     "Diskhasher currently supports multiple hashing algorithms. Users are \
                     encouraged to use more secure algorithms where possible, and although MD5 \
-                    and SHA1 are included for backwards compatibility purposes, users should
-                    be aware that they are cryptographically broken and untrustworthy for more
+                    and SHA1 are included for backwards compatibility purposes, users should \
+                    be aware that they are cryptographically broken and untrustworthy for more \
                     than basic error detection.",
                 ),
         )
