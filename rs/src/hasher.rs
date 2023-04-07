@@ -201,7 +201,7 @@ impl Hasher {
         let spinner = self.create_spinner(String::from("[+] Parsing hashes from hashfiles"))?;
         for fd in &self.hashfiles {
             let hashpath = fd.path().parent().ok_or(HasherError::File {
-                why: format!("Hashfile parent directory not found"),
+                why: String::from("Hashfile parent directory not found"),
                 path: fd.path_string(),
             })?;
 
@@ -213,7 +213,7 @@ impl Hasher {
             let reader = BufReader::new(file);
             for line in spinner.wrap_iter(reader.lines()) {
                 let newline = line?;
-                match split_hashfile_line(&newline, &hashpath) {
+                match split_hashfile_line(&newline, hashpath) {
                     Ok((path, hash)) => self.hashmap.insert(path, hash),
                     Err(err) => {
                         error!("[!] {err} : Failed to parse line from hashfile :: {newline}");
@@ -281,7 +281,7 @@ impl Hasher {
             .wrap_iter(WalkDir::new(&self.root).into_iter())
             .filter_map(Result::ok)
             .filter(|e| e.file_type().is_file())
-            .map(|e| FileData::try_from(e))
+            .map(FileData::try_from)
             .filter_map(Result::ok)
             .collect();
         self.mp.remove(&spinner);

@@ -28,10 +28,10 @@
 name = "diskhasher"
 description = """Recursive directory file hasher - \
 computes cryptographic checksums for every \
-file in a directory.\nSupports MD5, SHA1, SHA224, \
-SHA256, SHA384, and SHA512"""
+file in a directory. Supports a variety of hash algorithms, \
+see --help for details"""
 authors = ["Hyohko"]
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 license = "GPLv3"
 repository = "https://github.com/Hyohko/diskhasher"
@@ -44,20 +44,20 @@ panic = "abort"
 opt-level = 3 # "s" binary size, omit for speed
 
 [dependencies]
-log = "^0.4"
-pretty_env_logger = "^0.4"
+aligned_box = "^0.2"
 clap = { version = "^4", features = ["cargo", "wrap_help"] }
+custom_error = "^1.9"
 digest = "^0.10"
-filesize = "^0.2.0"
 hex = "^0.4"
+indicatif = "^0.17"
+#lazy_static = "^1.4"
+log = "^0.4"
 md-5 = "^0.10"
+pretty_env_logger = "^0.4"
 regex = "^1"
 sha1 = "^0.10"
 sha2 = "^0.10"
+sha3 = "^0.10"
 threadpool = "^1.8"
-walkdir = "^2"
-custom_error = "^1.9"
-lazy_static = "^1.4"
-indicatif = "^0.17"
-aligned_box = "^0.2"
 typenum = "^1"
+walkdir = "^2"

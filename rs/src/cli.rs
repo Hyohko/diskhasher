@@ -110,11 +110,11 @@ pub fn parse_cli() -> Result<Arguments, clap::error::Error> {
                 .value_parser(value_parser!(HashAlg))
                 .help("Algorithm to use")
                 .long_help(
-                    "Diskhasher currently supports 7 hashing algorithms: \
-                    MD5, SHA1, SHA224, SHA256, SHA284, and SHA512. Users are encouraged \
-                    to use more secure algorithms where possible, although MD5 and SHA1 \
-                    are included for backwards compatibility purposes, despite the \
-                    fact that they are cryptographically broken and untrustworthy",
+                    "Diskhasher currently supports multiple hashing algorithms. Users are \
+                    encouraged to use more secure algorithms where possible, and although MD5 \
+                    and SHA1 are included for backwards compatibility purposes, users should
+                    be aware that they are cryptographically broken and untrustworthy for more
+                    than basic error detection.",
                 ),
         )
         .arg(

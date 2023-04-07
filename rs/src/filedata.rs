@@ -88,11 +88,11 @@ impl TryFrom<DirEntry> for FileData {
     fn try_from(entry: DirEntry) -> Result<Self, HasherError> {
         let path = entry.path().to_path_buf();
         let metadata = path.metadata()?;
-        return Ok(Self::new(
+        Ok(Self::new(
             metadata.len(),
             path,
             #[cfg(target_os = "linux")]
             metadata.ino(),
-        ));
+        ))
     }
 }

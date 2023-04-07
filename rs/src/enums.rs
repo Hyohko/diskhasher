@@ -36,6 +36,10 @@ pub enum HashAlg {
     SHA256,
     SHA384,
     SHA512,
+    SHA3_224,
+    SHA3_256,
+    SHA3_384,
+    SHA3_512,
 }
 
 impl ValueEnum for HashAlg {
@@ -47,6 +51,10 @@ impl ValueEnum for HashAlg {
             HashAlg::SHA256,
             HashAlg::SHA384,
             HashAlg::SHA512,
+            HashAlg::SHA3_224,
+            HashAlg::SHA3_256,
+            HashAlg::SHA3_384,
+            HashAlg::SHA3_512,
         ]
     }
 
@@ -58,6 +66,10 @@ impl ValueEnum for HashAlg {
             HashAlg::SHA256 => PossibleValue::new("sha256").help("SHA256"),
             HashAlg::SHA384 => PossibleValue::new("sha384").help("SHA384"),
             HashAlg::SHA512 => PossibleValue::new("sha512").help("SHA512"),
+            HashAlg::SHA3_224 => PossibleValue::new("sha3-224").help("SHA3-224"),
+            HashAlg::SHA3_256 => PossibleValue::new("sha3-256").help("SHA3-256"),
+            HashAlg::SHA3_384 => PossibleValue::new("sha3-384").help("SHA3-384"),
+            HashAlg::SHA3_512 => PossibleValue::new("sha3-512").help("SHA3-512"),
         })
     }
 }

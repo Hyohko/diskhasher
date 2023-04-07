@@ -80,7 +80,7 @@ pub fn split_hashfile_line(
     })?;
     //alternate - !HEXSTRING_PATTERN.is_match(hashval), maybe someday
     validate_hexstring(hashval)?;
-    let canonical_path = canonicalize_filepath(&file_path.trim(), hashpath)?;
+    let canonical_path = canonicalize_filepath(file_path.trim(), hashpath)?;
     Ok((canonical_path, String::from(hashval)))
 }
 
