@@ -48,13 +48,10 @@ impl FromArgMatches for Arguments {
     fn from_arg_matches(matches: &ArgMatches) -> Result<Self, Error<RichFormatter>> {
         let sorting = match matches.get_one::<FileSortLogic>("sorting") {
             Some(v) => *v,
-            None => {
-                if cfg!(linux) {
-                    FileSortLogic::InodeOrder
-                } else {
-                    FileSortLogic::LargestFirst
-                }
-            }
+            #[cfg(target_os = "windows")]
+            None => FileSortLogic::LargestFirst,
+            #[cfg(target_os = "linux")]
+            None => FileSortLogic::SmallestFirst,
         };
         Ok(Arguments {
             directory: matches.get_one::<String>("directory").unwrap().to_string(),
@@ -79,13 +76,10 @@ impl FromArgMatches for Arguments {
         self.verbose = matches.get_flag("verbose");
         self.sorting = match matches.get_one::<FileSortLogic>("sorting") {
             Some(v) => *v,
-            None => {
-                if cfg!(linux) {
-                    FileSortLogic::InodeOrder
-                } else {
-                    FileSortLogic::LargestFirst
-                }
-            }
+            #[cfg(target_os = "windows")]
+            None => FileSortLogic::LargestFirst,
+            #[cfg(target_os = "linux")]
+            None => FileSortLogic::SmallestFirst,
         };
         self.logfile = matches.get_one::<String>("logfile").cloned();
         self.jobs = matches.get_one::<usize>("jobs").copied();
