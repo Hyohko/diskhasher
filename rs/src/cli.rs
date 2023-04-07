@@ -25,11 +25,13 @@
 */
 
 use clap::{
-    command, error::Error, error::RichFormatter, value_parser, Arg, ArgAction, ArgMatches,
-    FromArgMatches,
+    command,
+    error::{Error, RichFormatter},
+    value_parser, Arg, ArgAction, ArgMatches, FromArgMatches,
 };
 
 use crate::{FileSortLogic, HashAlg};
+
 pub struct Arguments {
     pub directory: String,
     pub algorithm: HashAlg,
