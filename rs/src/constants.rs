@@ -25,13 +25,13 @@
 */
 
 /// (2) MiB
-pub const SIZE_2MB: usize = 1024 * 1024 * 2;
+pub(crate) const SIZE_2MB: usize = 1024 * 1024 * 2;
 /// (128) MiB
-pub const SIZE_128MB: usize = 1024 * 1024 * 128;
+pub(crate) const SIZE_128MB: usize = 1024 * 1024 * 128;
 
 /// Buffer alignment for Direct I/O - one page (4096 bytes)
 #[cfg(target_os = "linux")]
-pub const ALIGNMENT: usize = 0x1000;
+pub(crate) const ALIGNMENT: usize = 0x1000;
 
 /// The Linux flag for Direct I/O
 #[cfg(target_os = "linux")]
@@ -48,4 +48,4 @@ const O_SEQUENTIAL: u32 = 0x0020;
 #[cfg(target_os = "windows")]
 const O_BINARY: u32 = 0x8000;
 
-pub const O_FLAGS: u32 = O_DIRECT | O_SEQUENTIAL | O_BINARY;
+pub(crate) const O_FLAGS: u32 = O_DIRECT | O_SEQUENTIAL | O_BINARY;

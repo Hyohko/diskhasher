@@ -36,7 +36,10 @@ use {
 /// Canonicalizes a file path, checking to see that the file exists and returns
 /// an absolute path to that file.
 /// TODO: Once PathBuf::absolute() is part of Rust Stable, replace this function
-pub fn canonicalize_filepath(file_path: &str, hashpath: &Path) -> Result<PathBuf, HasherError> {
+pub(crate) fn canonicalize_filepath(
+    file_path: &str,
+    hashpath: &Path,
+) -> Result<PathBuf, HasherError> {
     let mut file_path_buf: PathBuf = Path::new(&file_path).to_path_buf();
     if file_path_buf.is_relative() {
         file_path_buf = hashpath.join(&file_path_buf);
@@ -54,7 +57,7 @@ pub fn canonicalize_filepath(file_path: &str, hashpath: &Path) -> Result<PathBuf
 
 /// Validates that at least the file name portion of a file path matches
 /// the given regular expression.
-pub fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
+pub(crate) fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
     if let Some(path) = file_path.file_name() {
         if let Some(str_path) = path.to_str() {
             hash_regex.is_match(str_path)
@@ -71,7 +74,7 @@ pub fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
 /// Takes a line from a hashfile in the format "<hash hexstring> <path to file>",
 /// validates that the hash is the correct length/format, and checks for the existence
 /// of the file on disk at the given path, returning the path and the hash if both check out
-pub fn split_hashfile_line(
+pub(crate) fn split_hashfile_line(
     newline: &String,
     hashpath: &Path,
 ) -> Result<(PathBuf, String), HasherError> {
@@ -86,7 +89,7 @@ pub fn split_hashfile_line(
 
 /// Returns Ok(()) if hexstring is a supported length - i.e. matches
 /// the output of one of the algorithms we support
-pub fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
+pub(crate) fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
     match hexstring.len() {
         32 | 40 | 56 | 64 | 96 | 128 => {
             for chr in hexstring.chars() {

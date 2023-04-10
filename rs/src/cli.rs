@@ -30,7 +30,7 @@ use clap::{
     value_parser, Arg, ArgAction, ArgMatches, FromArgMatches,
 };
 
-use crate::{FileSortLogic, HashAlg};
+use crate::enums::{FileSortLogic, HashAlg};
 
 pub struct Arguments {
     pub directory: String,
@@ -51,7 +51,7 @@ impl FromArgMatches for Arguments {
             #[cfg(target_os = "windows")]
             None => FileSortLogic::LargestFirst,
             #[cfg(target_os = "linux")]
-            None => FileSortLogic::SmallestFirst,
+            None => FileSortLogic::InodeOrder,
         };
         Ok(Arguments {
             directory: matches.get_one::<String>("directory").unwrap().to_string(),
@@ -79,7 +79,7 @@ impl FromArgMatches for Arguments {
             #[cfg(target_os = "windows")]
             None => FileSortLogic::LargestFirst,
             #[cfg(target_os = "linux")]
-            None => FileSortLogic::SmallestFirst,
+            None => FileSortLogic::InodeOrder,
         };
         self.logfile = matches.get_one::<String>("logfile").cloned();
         self.jobs = matches.get_one::<usize>("jobs").copied();
@@ -89,6 +89,18 @@ impl FromArgMatches for Arguments {
 }
 
 pub fn parse_cli() -> Result<Arguments, clap::error::Error> {
+    #[cfg(target_os = "linux")]
+    let sorting_long_help = "Depending on the size of the files in the directory, the user \
+    may want to see the largest files sorted first or the smallest. \
+    \n[Linux only] Inode-order hashing is the default method (ostensibly) for disk \
+    I/O speed especially on HDD drives to avoid thrashing the read/write \
+    heads above the platters";
+
+    #[cfg(target_os = "windows")]
+    let sorting_long_help = "Depending on the size of the files in the directory, the user \
+    may want to see the largest files sorted first or the smallest. \
+    \n[Windows only] File sorting defaults to largest file first.";
+
     let args = command!()
         .arg(
             Arg::new("directory")
@@ -169,13 +181,7 @@ pub fn parse_cli() -> Result<Arguments, clap::error::Error> {
                 .required(false)
                 .value_parser(value_parser!(FileSortLogic))
                 .help("File sorting order")
-                .long_help(
-                    "Depending on the size of the files in the directory, the user \
-                    may want to see the largest files sorted first or the smallest. \
-                    \n[Linux only] Inode-order hashing is the default method (ostensibly) for disk \
-                    I/O speed especially on HDD drives to avoid thrashing the read/write \
-                    heads above the platters",
-                ),
+                .long_help(sorting_long_help),
         )
         .arg(
             Arg::new("logfile")

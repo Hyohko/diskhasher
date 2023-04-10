@@ -53,16 +53,16 @@ use {aligned_box::AlignedBox, std::os::unix::fs::OpenOptionsExt};
 use std::os::windows::fs::OpenOptionsExt;
 
 // For the ease of refactoring the threadfunc
-pub struct ThreadFuncArgs {
-    pub fdata: FileData,
-    pub alg: HashAlg,
-    pub force: bool,
-    pub verbose: bool,
-    pub loghandle: Option<Arc<Mutex<File>>>,
-    pub opt_mp: Option<MultiProgress>,     // is already an Arc
-    pub opt_progress: Option<ProgressBar>, // is already an Arc
-    pub gen_hashfile: Option<Arc<Mutex<File>>>,
-    pub gen_hashfile_dir: Option<PathBuf>,
+pub(crate) struct ThreadFuncArgs {
+    pub(crate) fdata: FileData,
+    pub(crate) alg: HashAlg,
+    pub(crate) force: bool,
+    pub(crate) verbose: bool,
+    pub(crate) loghandle: Option<Arc<Mutex<File>>>,
+    pub(crate) opt_mp: Option<MultiProgress>, // is already an Arc
+    pub(crate) opt_progress: Option<ProgressBar>, // is already an Arc
+    pub(crate) gen_hashfile: Option<Arc<Mutex<File>>>,
+    pub(crate) gen_hashfile_dir: Option<PathBuf>,
 }
 
 macro_rules! read_all_into_hasher {
@@ -139,7 +139,7 @@ fn hash_file(
 
 /// Calls hash_file and reports the success or failure (if --force is false),
 /// logging results to file if a valid file handle is passed in.
-pub fn perform_hash_threadfunc(args: ThreadFuncArgs) -> Result<(), HasherError> {
+pub(crate) fn perform_hash_threadfunc(args: ThreadFuncArgs) -> Result<(), HasherError> {
     let actual_hash = hash_file(&args.fdata, args.alg, &args.opt_mp)?;
     if let Some(tp) = args.opt_progress {
         tp.inc(1);
