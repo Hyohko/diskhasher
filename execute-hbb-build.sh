@@ -86,7 +86,7 @@ if [ ! "$(docker ps -a -q -f name=$MY_HBB_NAME)" ]; then
         $ACTIVATE \
         bash -x -c "$RUNSCRIPT $BUILD_MODE"
     mv `pwd`/$DISTRO/dkhash .
-    echo "[+] diskhasher binary at $(pwd)/dkhash"
+    echo "[+] dkhash binary at $(pwd)/dkhash"
     echo "[+] done"
 fi
 

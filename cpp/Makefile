@@ -43,13 +43,13 @@ LDFLAGS = -Wl,--gc-sections -pie
 LIBS = -pthread
 
 SRCS = md5.c sha1.c sha256.c sha512.c kcapi-kernel-if.c kcapi-md.c kcapi-utils.c
-SRCS_CPP = diskhasher.cpp filehash.cpp hash.cpp
+SRCS_CPP = dkhash.cpp filehash.cpp hash.cpp
 
 OBJS = $(SRCS:.c=.o)
 OBJS_CPP = $(SRCS_CPP:.cpp=.o)
 
 # define the executable file
-MAIN = diskhasher
+MAIN = dkhash
 
 .PHONY: clean
 

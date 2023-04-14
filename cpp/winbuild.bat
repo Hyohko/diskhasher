@@ -6,7 +6,7 @@ cd winbuild
 cmake -G "Visual Studio 16 2019" ..
 
 REM Build Debug mode
-msbuild .\diskhasher.sln /p:Configuration=Debug;Platform=x64 /t:Rebuild /m
+msbuild .\dkhash.sln /p:Configuration=Debug;Platform=x64 /t:Rebuild /m
 
 REM Build Release mode
-msbuild .\diskhasher.sln /p:Configuration=Release;Platform=x64 /t:Rebuild /m
+msbuild .\dkhash.sln /p:Configuration=Release;Platform=x64 /t:Rebuild /m
