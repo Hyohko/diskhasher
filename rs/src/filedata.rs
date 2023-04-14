@@ -96,3 +96,16 @@ impl TryFrom<DirEntry> for FileData {
         ))
     }
 }
+
+impl TryFrom<PathBuf> for FileData {
+    type Error = HasherError;
+    fn try_from(path: PathBuf) -> Result<Self, HasherError> {
+        let metadata = path.metadata()?;
+        Ok(Self::new(
+            metadata.len(),
+            path,
+            #[cfg(target_os = "linux")]
+            metadata.ino(),
+        ))
+    }
+}

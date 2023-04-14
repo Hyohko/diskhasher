@@ -38,11 +38,11 @@ use {
 /// TODO: Once PathBuf::absolute() is part of Rust Stable, replace this function
 pub(crate) fn canonicalize_filepath(
     file_path: &str,
-    hashpath: &Path,
+    containing_dir: &Path,
 ) -> Result<PathBuf, HasherError> {
     let mut file_path_buf: PathBuf = Path::new(&file_path).to_path_buf();
     if file_path_buf.is_relative() {
-        file_path_buf = hashpath.join(&file_path_buf);
+        file_path_buf = containing_dir.join(&file_path_buf);
         file_path_buf = canonicalize(file_path_buf)?;
     }
     if file_path_buf.is_file() {

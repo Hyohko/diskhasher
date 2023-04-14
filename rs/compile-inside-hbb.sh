@@ -55,5 +55,5 @@ case $1 in
         ;;
 esac
 
-ARTIFACT_FILE=$BUILD_DIR/target/$ARTIFACT/diskhasher
-[ -f $ARTIFACT_FILE ] && mv $ARTIFACT_FILE $BUILD_DIR/diskhasher
+ARTIFACT_FILE=$BUILD_DIR/target/$ARTIFACT/dkhash
+[ -f $ARTIFACT_FILE ] && mv $ARTIFACT_FILE $BUILD_DIR/dkhash

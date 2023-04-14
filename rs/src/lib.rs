@@ -39,8 +39,9 @@ extern crate log;
 
 // The only exportable functionality we expose to any main function
 pub use crate::{
-    cli::{parse_cli, Arguments},
+    cli::{parse_cli, Arguments, HashMode},
     hasher::Hasher,
+    threadfunc::hash_single_file,
 };
 
 ///////////////////////////////////////////////////////////////////////////////

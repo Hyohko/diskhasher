@@ -31,6 +31,7 @@ use crate::{
     enums::HashAlg,
     error::HasherError,
     filedata::FileData,
+    util::canonicalize_filepath,
 };
 // Macros at crate top-level
 use crate::{filelog, hashobj, known_zero_hash};
@@ -135,6 +136,25 @@ fn hash_file(
         read_all_into_hasher!(file, hasher);
     }
     Ok(hex::encode(hasher.finalize()))
+}
+
+// export this function all the way to the top level
+pub fn hash_single_file(filename: String, alg: HashAlg) -> Result<(), HasherError> {
+    // canonicalize file path and check for existence
+    let abspath = canonicalize_filepath(&filename, &std::env::current_dir()?)?;
+    let fdata = FileData::try_from(abspath)?;
+    // Create a multiprogress in case this is a large file. Whether or not
+    // it is displayed is determined by the hash_file() logic
+    let mp = MultiProgress::new();
+    let actual_hash = hash_file(&fdata, alg, &Some(mp))?;
+    println!(
+        "[*] Checksum value :\n\
+        \t{:?}\n\
+        \tHash         : {:?}\n",
+        fdata.path(),
+        actual_hash
+    );
+    Ok(())
 }
 
 /// Calls hash_file and reports the success or failure (if --force is false),

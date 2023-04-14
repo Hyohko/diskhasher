@@ -23,12 +23,13 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
+
 extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
 use {
-    diskhasher::{parse_cli, Hasher},
+    dkhash::{hash_single_file, parse_cli, HashMode, Hasher},
     log::LevelFilter,
 };
 
@@ -49,23 +50,39 @@ fn main() {
         }
     };
 
-    let mut myhasher = match Hasher::new(
-        args.algorithm,
-        args.directory.clone(),
-        args.pattern,
-        args.logfile,
-        args.jobs,
-        args.generate_hashfile,
-    ) {
-        Ok(v) => v,
-        Err(err) => {
-            error!("[!] Init: {err}");
+    match args.mode {
+        HashMode::RecursiveDir => {
+            let mut myhasher = match Hasher::new(
+                args.algorithm,
+                args.path_string.clone(),
+                args.pattern,
+                args.logfile,
+                args.jobs,
+                args.generate_hashfile,
+            ) {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("[!] Init: {err}");
+                    return;
+                }
+            };
+            if let Err(err) = myhasher.run(args.force, args.verbose, args.sorting) {
+                error!("[!] Runtime: {err}");
+                return;
+            };
+        }
+        HashMode::SingleFile => {
+            if let Err(err) = hash_single_file(args.path_string, args.algorithm) {
+                error!("[!] Runtime: {err}");
+                return;
+            }
+        }
+        _ => {
+            error!(
+                "Must select subcommand (should be handlied by parser, but for completeness...)"
+            );
             return;
         }
-    };
-    if let Err(err) = myhasher.run(args.force, args.verbose, args.sorting) {
-        error!("[!] Runtime: {err}");
-        return;
-    };
+    }
     info!("[+] Done");
 }

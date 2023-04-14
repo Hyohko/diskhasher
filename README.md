@@ -1,9 +1,9 @@
-# diskhasher
+# dkhash
 
 A utility for calculating the checksums of all files on a given disk. If a checksum file is provided, then calculate only the checksums of the files listed and compare them against the give sums, reporting back any failures. For example:
 
 ```bash
-./diskhasher -d /path/to/folder -f md5sum_destination.txt -a md5 -l ./failures.log
+./dkhash -d /path/to/folder -f md5sum_destination.txt -a md5 -l ./failures.log
 ```
 
 This utility will spin up as many new threads as the processor will support to parallelize the computation of checksums.
@@ -11,7 +11,7 @@ This utility will spin up as many new threads as the processor will support to p
 The preferred build mode uses the Phusion Holy Build Box to build a cross-platform/"portable" binary. This script will pull down the latest Holy Build Box Docker container and execute the build process inside it. This has the advantage of linking against the oldest possible GLIBC that the HBB supports, and should work on anything later than CentOS 7 / Ubuntu 14.04. Execute the following script, which will automatically get the lastest HBB from the Docker hub:
 
 ```bash
-cd /path/to/diskhasher/
+cd /path/to/dkhash/
 # Rust builds
 ./execute-hbb-build.sh rust release
 ./execute-hbb-build.sh rust debug
@@ -20,7 +20,7 @@ cd /path/to/diskhasher/
 ./execute-hbb-build.sh cpp release
 ./execute-hbb-build.sh cpp debug
 
-./diskhasher .....
+./dkhash .....
 ```
 
 # Rust
@@ -28,12 +28,12 @@ cd /path/to/diskhasher/
 Print the help/usage statement (short form):
 
 ```
-$ ./diskhasher -h
+$ ./dkhash -h
 Recursive directory file hasher - computes cryptographic checksums for every
 file in a directory. Supports a variety of hash algorithms, see --help for
 details
 
-Usage: diskhasher [OPTIONS] --dir <directory> --alg <algorithm>
+Usage: dkhash [OPTIONS] --dir <directory> --alg <algorithm>
 
 Options:
   -d, --dir <directory>
@@ -65,12 +65,12 @@ Options:
 Print the help/usage statement (long form):
 
 ```
-$ ./diskhasher --help
+$ ./dkhash --help
 Recursive directory file hasher - computes cryptographic checksums for every
 file in a directory. Supports a variety of hash algorithms, see --help for
 details
 
-Usage: diskhasher [OPTIONS] --dir <directory> --alg <algorithm>
+Usage: dkhash [OPTIONS] --dir <directory> --alg <algorithm>
 
 Options:
   -d, --dir <directory>
@@ -134,7 +134,7 @@ Options:
           If provided, the logfile will record the hash results
           (success/failure) at this provided file location. If no directory is
           given as part of the file path, then this file will be written to the
-          same directory as the diskhasher executable.
+          same directory as the dkhash executable.
 
   -j, --jobs <jobs>
           For readability, the number of concurrently running threads performing
@@ -158,7 +158,7 @@ Options:
 To build the project just using CARGO and not the Holy Build Box:
 
 ```bash
-cd /path/to/diskhasher/rs
+cd /path/to/dkhash/rs
 cargo build --release
 ```
 
@@ -167,11 +167,11 @@ cargo build --release
 Print the help/usage statement:
 
 ```bash
-$ ./diskhasher -h
-[+] ./diskhasher
+$ ./dkhash -h
+[+] ./dkhash
  - Recursively calculate the crypto hashes for a directory
 Usage:
-  ./diskhasher [OPTION...]
+  ./dkhash [OPTION...]
 
   -d, --root-dir arg       Path to folder / disk drive
   -f, --hashfile-name arg  Name of the file(s) containing hashes
@@ -193,33 +193,33 @@ Usage:
 To build as statically-linked, default Release mode (runs on most NIX systems):
 
 ```bash
-cd /path/to/diskhasher/cpp
+cd /path/to/dkhash/cpp
 make
 
-./diskhasher .....
+./dkhash .....
 ```
 
 To build for Linux using CMAKE (may not work on all systems):
 
 ```bash
-cd /path/to/diskhasher/cpp
+cd /path/to/dkhash/cpp
 mkdir build
 cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make
 
-./diskhasher .....
+./dkhash .....
 ```
 
 To build on Windows requires CMake and the Windows Visual Studio 2019 development kit (just the compilers and libraries), and you'll need to do all this in the Developer Command Prompt for VS2019:
 
 ```cmd
-cd C:\path\to\diskhasher\cpp
+cd C:\path\to\dkhash\cpp
 mkdir build
 cd build
 cmake .. -G "Visual Studio 16 2019"
-msbuild .\diskhasher.sln /P:Configuration=Release;Platform=x64
+msbuild .\dkhash.sln /P:Configuration=Release;Platform=x64
 
 % to run %
-.\Release\diskhasher.exe ....
+.\Release\dkhash.exe ....
 ```

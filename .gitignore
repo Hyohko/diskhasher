@@ -3,6 +3,7 @@
 
 *.o
 diskhasher
+dkhash
 build/
 .vscode/
 CMakeFiles/
