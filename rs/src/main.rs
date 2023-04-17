@@ -78,9 +78,7 @@ fn main() {
             }
         }
         _ => {
-            error!(
-                "Must select subcommand (should be handlied by parser, but for completeness...)"
-            );
+            error!("Must select subcommand (should be handled by parser, but for completeness...)");
             return;
         }
     }
