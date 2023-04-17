@@ -142,13 +142,39 @@ void run_hash_tests()
 #define O_BINARY (0)
 #endif
 
-pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string expected, bool use_osapi_hashing, bool verbose)
+pathpair hash_file_thread_func(
+    fs::path path,
+    HASHALG algorithm,
+    const size_t filesize,
+    std::string expected,
+    bool use_osapi_hashing,
+    bool verbose,
+    DynamicProgress<ProgressBar> *mp
+)
 {
     // Define this as needed (2 MB, currently), must be a multiple of 512
     const size_t READCHUNK_SIZE = 1024 * 1024 * 2; // (4096 * 512)
     std::unique_ptr<hash> hasher;
     std::string hexdigest;
     int r_file = -1;
+    size_t total_bytes = 0;
+    size_t bar_index = 0;
+    DynamicProgress<ProgressBar> &mp_ref = *mp;
+    
+    
+    const size_t SIZE_128MB = 1024 * 1024 * 128;
+    if(filesize >= SIZE_128MB)
+    {
+        ProgressBar bar{
+            option::BarWidth{19},
+            option::ForegroundColor{Color::cyan},
+            option::ShowElapsedTime{true},
+            option::ShowRemainingTime{true},
+            option::PostfixText{path.filename()},
+            option::MaxProgress{filesize}
+        };
+        bar_index = mp_ref.push_back(bar);
+    }
 
     // Get dedicated thread logger object from logger registry
     std::shared_ptr<spdlog::logger> local_logger = spdlog::get(THREADLOGGER_STR);
@@ -219,7 +245,6 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
         local_logger->error("[-] OsErr: {} => File '{}' failed to open", std::strerror(errno), path.string());
         goto exit;
     }
-
     while (1)
     {
         if (s_task_ended.load())
@@ -244,12 +269,21 @@ pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string exp
             // local_logger->debug("[*] More data to receive for => {}", path.string());
             break;
         }
+        total_bytes += bytes_read;
         hasher->update(buf, bytes_read);
+        if(bar_index)
+        {
+            mp_ref[bar_index].set_progress(total_bytes);
+        }
     }
 eof:
     hexdigest = hasher->get_hash();
     log_result(path, expected, hexdigest);
 exit:
+    if(bar_index)
+    {
+        mp_ref[bar_index].mark_as_completed();
+    }
     if (-1 != r_file)
     {
         close(r_file);

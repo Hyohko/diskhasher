@@ -68,3 +68,6 @@ typedef std::vector<std::string> strvector;
 #define HASH_CANCELLED_STR "---HASH CANCELLED---"
 #define HASH_FAILED_STR "---HASH FAILED---"
 #define IGNORE_HASH_CHECK "xx"
+
+#include "indicators.hpp" // Progress bar
+using namespace indicators;

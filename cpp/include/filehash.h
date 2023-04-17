@@ -65,7 +65,15 @@ void run_hash_tests();
  * @param expected The expected hash of the file, if it's being checked. To skip this check,
  * @param use_osapi_hashing If TRUE, try to force the use of the OS crypto API
  */
-pathpair hash_file_thread_func(fs::path path, HASHALG algorithm, std::string expected, bool use_osapi_hashing, bool verbose);
+pathpair hash_file_thread_func(
+    fs::path path,
+    HASHALG algorithm,
+    const size_t filesize,
+    std::string expected,
+    bool use_osapi_hashing,
+    bool verbose,
+    DynamicProgress<ProgressBar> *mp
+);
 
 /**
  * @brief When called, terminates all running tasks

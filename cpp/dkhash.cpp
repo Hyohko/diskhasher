@@ -127,7 +127,7 @@ std::string &ltrim(std::string &s)
  * @param filepath Absolute path to the checksum file
  * @return Vector of path / hash pairs contained in this checksum file
  */
-std::vector<pathstruct> parse_hashfile(const fs::path &filepath)
+std::vector<pathstruct> parse_hashfile(const fs::path &filepath, indicators::IndeterminateProgressBar &bar)
 {
     spdlog::info("[+] Parsing hashfile {}", filepath.string());
     std::ifstream infile(filepath);
@@ -164,9 +164,9 @@ std::vector<pathstruct> parse_hashfile(const fs::path &filepath)
             hashlist.emplace_back(target, hash);
         }
         count++;
-        if (count % 500 == 0)
+        if (count % 50 == 0)
         {
-            spdlog::info("[*] {} hashes parsed", count);
+            bar.tick();
         }
         if (s_ctrl_c)
         {
@@ -188,6 +188,19 @@ pathvector recursive_dirwalk(const fs::path &root_dir)
 {
     pathvector all_files;
     size_t count = 0;
+    indicators::IndeterminateProgressBar bar{
+      indicators::option::BarWidth{19},
+      indicators::option::Start{"["},
+      indicators::option::Fill{"·"},
+      indicators::option::Lead{"<==>"},
+      indicators::option::End{"]"},
+      indicators::option::PostfixText{"Recursively walking directory"},
+      indicators::option::ForegroundColor{indicators::Color::yellow},
+      indicators::option::FontStyles{
+      std::vector<indicators::FontStyle>{indicators::FontStyle::bold}}
+    };
+    indicators::show_console_cursor(false);
+
     for (auto &itEntry : fs::recursive_directory_iterator(root_dir))
     {
         try
@@ -202,15 +215,18 @@ pathvector recursive_dirwalk(const fs::path &root_dir)
             spdlog::error("[-] ({}) '{}' is not a regular file", e.what(), itEntry.path().string());
         }
         count++;
-        if (count % 500 == 0)
+        if (count % 100 == 0)
         {
-            spdlog::debug("[*] {} directory items enumerated", count);
+            //spdlog::debug("[*] {} directory items enumerated", count);
+            bar.tick();
         }
         if (s_ctrl_c)
         {
             break;
         }
     }
+    bar.mark_as_completed();
+    indicators::show_console_cursor(true); 
     spdlog::debug("[*] Total: {} directory items enumerated", count);
     return all_files;
 }
@@ -277,7 +293,11 @@ HASHALG get_hashalg(const cxxopts::ParseResult &result)
                        { return std::tolower(c); });
         if (!algs.contains(algstr))
         {
-            spdlog::error("[!] Must select 'md5', 'sha1', or 'sha256'");
+            spdlog::error("[!] Must select 'md5', 'sha1', " 
+#ifndef _WIN32
+            "'sha224',"
+#endif
+            "'sha256', 'sha384', or 'sha512'");
             exit(1);
         }
         spdlog::info("[+] Using algorithm '{}'", algstr);
@@ -370,6 +390,18 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult &result)
     }
     else
     {
+        indicators::IndeterminateProgressBar bar{
+          indicators::option::BarWidth{19},
+          indicators::option::Start{"["},
+          indicators::option::Fill{"·"},
+          indicators::option::Lead{"<==>"},
+          indicators::option::End{"]"},
+          indicators::option::PostfixText{"Parsing hashfiles"},
+          indicators::option::ForegroundColor{indicators::Color::yellow},
+          indicators::option::FontStyles{
+          std::vector<indicators::FontStyle>{indicators::FontStyle::bold}}
+        };
+        indicators::show_console_cursor(false);
         for (const auto &p : all_files)
         {
             if (s_ctrl_c)
@@ -382,10 +414,12 @@ std::vector<pathstruct> load_hashes(const cxxopts::ParseResult &result)
                           checksum_files.end(),
                           p.filename().string()) != checksum_files.end())
             {
-                std::vector<pathstruct> hashes = parse_hashfile(p);
+                std::vector<pathstruct> hashes = parse_hashfile(p, bar);
                 all_hashes.insert(all_hashes.end(), hashes.begin(), hashes.end());
             }
         }
+        indicators::show_console_cursor(true);
+        bar.mark_as_completed();
     }
 
     if (s_ctrl_c)
@@ -470,7 +504,7 @@ cxxopts::ParseResult parse_cmdline_args(int argc, const char *argv[])
  * @param print_debug Print all available debug statements
  * @return Vector of pending tasks that can be polled/awaited for results
  */
-std::vector<std::future<pathpair>> start_tasks(const cxxopts::ParseResult &cmdline_args, bool use_osapi_hash, bool print_debug)
+std::vector<std::future<pathpair>> start_tasks(const cxxopts::ParseResult &cmdline_args, bool use_osapi_hash, bool print_debug, DynamicProgress<ProgressBar> *mp)
 {
 #ifndef _WIN32
     // Linux set ulimit to allow for a really huge disk
@@ -488,6 +522,18 @@ std::vector<std::future<pathpair>> start_tasks(const cxxopts::ParseResult &cmdli
     auto hashalg = get_hashalg(cmdline_args);
     auto all_hashes = load_hashes(cmdline_args);
     size_t num_files = all_hashes.size();
+    
+    // all files progress bar
+    ProgressBar all_files_bar{
+        option::BarWidth{19},
+        option::ForegroundColor{Color::red},
+        option::ShowElapsedTime{true},
+        option::ShowRemainingTime{true},
+        option::PostfixText{"All Files Progress"},
+        option::MaxProgress{num_files}
+    };
+    mp->push_back(all_files_bar);
+    
     spdlog::info("[+] Computing and checking {} file hashes", num_files);
 
 #ifndef _WIN32
@@ -518,7 +564,14 @@ std::vector<std::future<pathpair>> start_tasks(const cxxopts::ParseResult &cmdli
             break;
         }
         tasks.emplace_back(std::async(std::launch::async, hash_file_thread_func,
-                                      s.path, hashalg, s.hash, use_osapi_hash, print_debug));
+                                      s.path,
+                                      hashalg,
+                                      s.filesize,
+                                      s.hash,
+                                      use_osapi_hash,
+                                      print_debug,
+                                      mp)
+                          );
     }
     return tasks;
 }
@@ -636,7 +689,10 @@ extern "C" int main(int argc, const char *argv[])
 
     spdlog::info("[*] {} cores available for processing", std::thread::hardware_concurrency());
 
-    auto tasks = start_tasks(cmdline_args, use_osapi_hash, print_debug);
+    DynamicProgress<ProgressBar> mp;
+    mp.set_option(option::HideBarWhenComplete{true});
+
+    auto tasks = start_tasks(cmdline_args, use_osapi_hash, print_debug, &mp);
     // Wait for and process results - the benefit of the std::sort() above is that, by sorting
     // on file size, we get results faster on the vast majority of the files. Less blocking
     // on big files in lieu of smaller ones.
@@ -649,8 +705,9 @@ extern "C" int main(int argc, const char *argv[])
     }
 
     wait_on_tasks(tasks, numFiles, verbose);
-    spdlog::info("[+] Done");
     close_log();
     destroy_hash_concurrency_limit();
+    mp[0].mark_as_completed();
+    spdlog::info("[+] Done");
     return 0;
 }
