@@ -248,3 +248,108 @@ mod validate_hexstring {
         }
     }
 }
+
+mod hashtest {
+    use typenum::assert_type_eq;
+
+    use crate::{
+        enums::HashAlg, filedata::FileData, threadfunc::hash_file, util::canonicalize_filepath,
+    };
+    use rand::random;
+    use std::{
+        collections::HashMap,
+        env,
+        fs::{remove_file, File},
+        path::{Path, PathBuf},
+        process::Command,
+        str::from_utf8,
+    };
+
+    fn get_os_hash(testfile: &str, alg: &str) -> String {
+        let interim: Vec<u8>;
+        let outstr: String;
+        let output = if cfg!(target_os = "windows") {
+            interim = Command::new("powershell")
+            .args([
+                "-Command",
+                format!("(Get-Filehash .\\{testfile} -Algorithm {alg} | Select-Object Hash).Hash.ToLower()").as_str(),
+            ])
+            .output()
+            .expect("failed to execute PowerShell")
+            .stdout;
+
+            outstr = from_utf8(&interim)
+                .expect("Should be standard format")
+                .to_string();
+            let ret = outstr.split_once('\r').unwrap().0.to_string();
+            ret
+        } else if cfg!(target_os = "linux") {
+            interim = Command::new("sh")
+                .args([
+                    "-c",
+                    format!("`which {alg}sum`").as_str(),
+                    format!("`pwd`/{testfile}").as_str(),
+                ])
+                .output()
+                .expect("failed to execute BASH")
+                .stdout;
+
+            outstr = from_utf8(&interim)
+                .expect("Should be standard format")
+                .to_string();
+            let ret = outstr.split_once(' ').unwrap().0.to_string();
+            ret
+        } else {
+            panic!("Unsupported OS");
+        };
+        output
+    }
+
+    fn run_all_hashes(testfile: &str) {
+        let algs = HashMap::from([
+            ("md5", HashAlg::MD5),
+            ("sha1", HashAlg::SHA1),
+            ("sha256", HashAlg::SHA256),
+            ("sha512", HashAlg::SHA512),
+        ]);
+
+        for (algstr, alg) in algs {
+            let expected = get_os_hash(testfile, algstr);
+            let base: PathBuf = env::current_dir().unwrap().join(testfile);
+            let absolute = Path::new(&base);
+            let path = canonicalize_filepath(&absolute.display().to_string(), &base).unwrap();
+            let fdata = FileData::new(
+                0,
+                path,
+                #[cfg(target_os = "linux")]
+                0,
+            );
+            let result = hash_file(&fdata, alg, &None);
+            assert!(result.is_ok());
+            let actual = result.unwrap();
+            assert_eq!(expected, actual);
+        }
+    }
+
+    #[test]
+    fn hash_empty_file() {
+        let testfile: &str = "empty.txt";
+        assert!(File::create(&testfile).is_ok());
+        run_all_hashes(testfile);
+        remove_file(&testfile).unwrap_or_else(|err| println!("File error: {err}"));
+    }
+
+    #[test]
+    fn hash_random_file() {
+        let testfile: &str = "random.txt";
+        let random_bytes: Vec<u8> = (0..4096).map(|_| rand::random::<u8>()).collect();
+        assert!(std::fs::write(testfile, random_bytes).is_ok());
+        run_all_hashes(testfile);
+        remove_file(&testfile).unwrap_or_else(|err| println!("File error: {err}"));
+    }
+    #[test]
+    fn hash_known_file() {
+        let testfile: &str = "Cargo.toml";
+        run_all_hashes(testfile);
+    }
+}

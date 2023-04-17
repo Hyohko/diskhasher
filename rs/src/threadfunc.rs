@@ -91,7 +91,7 @@ macro_rules! read_all_into_hasher {
 /// 2. If the indicatif::MultiProgress option is set
 ///  * If the file size equals or exceeds 128 MB, show a progress bar
 /// 3. In all cases, read the file in 2MB chunks and compute the hash as given by alg
-fn hash_file(
+pub(crate) fn hash_file(
     fdata: &FileData,
     alg: HashAlg,
     opt_mp: &Option<MultiProgress>,

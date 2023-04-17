@@ -47,7 +47,7 @@ pub struct FileData {
 impl FileData {
     /// FileData constructor - not public, only referenced in
     /// TryFrom<DirEntry>
-    fn new(size: u64, path: PathBuf, #[cfg(target_os = "linux")] inode: u64) -> Self {
+    pub(crate) fn new(size: u64, path: PathBuf, #[cfg(target_os = "linux")] inode: u64) -> Self {
         Self {
             size,
             path,
