@@ -31,7 +31,7 @@ computes cryptographic checksums for every \
 file in a directory. Supports a variety of hash algorithms, \
 see --help for details"""
 authors = ["Hyohko"]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 license = "GPLv3"
 repository = "https://github.com/Hyohko/diskhasher"
