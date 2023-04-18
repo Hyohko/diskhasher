@@ -25,7 +25,7 @@
 */
 
 mod hashfile {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     #[test]
     fn replace_prefix() {
@@ -60,10 +60,14 @@ mod canonicalize_path {
         let rel: &str = "rel_exists.txt";
         assert!(File::create(&rel).is_ok());
         let base: PathBuf = env::current_dir().unwrap();
-        let expected = base.clone().join(rel);
+        let expected = base.clone().join(rel).display().to_string();
         let val = canonicalize_filepath(rel, &base);
         assert!(val.is_ok());
-        assert_eq!(val.unwrap(), expected);
+        let temp = val.unwrap().display().to_string();
+        // Windows canonical paths are....janky. If windows, this string replace will remove
+        // the canonical prefix, if any exists. in Nix, it is a No-Op.
+        let actual = temp.replace("\\\\?\\", "");
+        assert_eq!(actual, expected);
         remove_file(rel).unwrap();
     }
 
@@ -250,12 +254,11 @@ mod validate_hexstring {
 }
 
 mod hashtest {
-    use typenum::assert_type_eq;
-
     use crate::{
         enums::HashAlg, filedata::FileData, threadfunc::hash_file, util::canonicalize_filepath,
     };
-    use rand::random;
+    #[cfg(target_os = "linux")]
+    use std::os::unix::fs::MetadataExt;
     use std::{
         collections::HashMap,
         env,
@@ -269,14 +272,14 @@ mod hashtest {
         let interim: Vec<u8>;
         let outstr: String;
         let output = if cfg!(target_os = "windows") {
+            let strarg = format!(
+                "(Get-Filehash .\\{testfile} -Algorithm {alg} | Select-Object Hash).Hash.ToLower()"
+            );
             interim = Command::new("powershell")
-            .args([
-                "-Command",
-                format!("(Get-Filehash .\\{testfile} -Algorithm {alg} | Select-Object Hash).Hash.ToLower()").as_str(),
-            ])
-            .output()
-            .expect("failed to execute PowerShell")
-            .stdout;
+                .args(["-Command", strarg.as_str()])
+                .output()
+                .expect("failed to execute PowerShell")
+                .stdout;
 
             outstr = from_utf8(&interim)
                 .expect("Should be standard format")
@@ -284,12 +287,10 @@ mod hashtest {
             let ret = outstr.split_once('\r').unwrap().0.to_string();
             ret
         } else if cfg!(target_os = "linux") {
-            interim = Command::new("sh")
-                .args([
-                    "-c",
-                    format!("`which {alg}sum`").as_str(),
-                    format!("`pwd`/{testfile}").as_str(),
-                ])
+            let strarg = format!("`which {alg}sum` `pwd`/{testfile}");
+            println!("{strarg}");
+            interim = Command::new(format!("{alg}sum"))
+                .arg(format!("./{testfile}").as_str())
                 .output()
                 .expect("failed to execute BASH")
                 .stdout;
@@ -319,10 +320,10 @@ mod hashtest {
             let absolute = Path::new(&base);
             let path = canonicalize_filepath(&absolute.display().to_string(), &base).unwrap();
             let fdata = FileData::new(
-                0,
-                path,
+                std::fs::metadata(&path).unwrap().len(),
+                path.clone(),
                 #[cfg(target_os = "linux")]
-                0,
+                std::fs::metadata(&path).unwrap().ino(),
             );
             let result = hash_file(&fdata, alg, &None);
             assert!(result.is_ok());
@@ -336,17 +337,20 @@ mod hashtest {
         let testfile: &str = "empty.txt";
         assert!(File::create(&testfile).is_ok());
         run_all_hashes(testfile);
-        remove_file(&testfile).unwrap_or_else(|err| println!("File error: {err}"));
+        assert!(remove_file(&testfile).is_ok());
     }
 
     #[test]
     fn hash_random_file() {
         let testfile: &str = "random.txt";
         let random_bytes: Vec<u8> = (0..4096).map(|_| rand::random::<u8>()).collect();
+        let _ign = remove_file(&testfile); // remove it if it exists (panic case).
+        assert!(File::create(&testfile).is_ok());
         assert!(std::fs::write(testfile, random_bytes).is_ok());
         run_all_hashes(testfile);
-        remove_file(&testfile).unwrap_or_else(|err| println!("File error: {err}"));
+        assert!(remove_file(&testfile).is_ok());
     }
+
     #[test]
     fn hash_known_file() {
         let testfile: &str = "Cargo.toml";

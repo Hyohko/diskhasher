@@ -23,14 +23,13 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
+use crate::enums::{FileSortLogic, HashAlg};
 
 use clap::{
     command,
-    error::{Error, RichFormatter},
+    error::{Error, ErrorKind},
     value_parser, Arg, ArgAction, ArgMatches, Command, FromArgMatches,
 };
-
-use crate::enums::{FileSortLogic, HashAlg};
 
 pub enum HashMode {
     RecursiveDir,
@@ -52,7 +51,7 @@ pub struct Arguments {
 }
 
 impl FromArgMatches for Arguments {
-    fn from_arg_matches(matches: &ArgMatches) -> Result<Self, Error<RichFormatter>> {
+    fn from_arg_matches(matches: &ArgMatches) -> Result<Self, clap::error::Error> {
         if let Some(matches) = matches.subcommand_matches("dir") {
             let sorting = match matches.get_one::<FileSortLogic>("sorting") {
                 Some(v) => *v,
@@ -87,25 +86,10 @@ impl FromArgMatches for Arguments {
                 mode: HashMode::SingleFile,
             })
         } else {
-            // Todo - return Err<Something>
-            Ok(Self {
-                path_string: "".to_string(),
-                algorithm: HashAlg::MD5,
-                pattern: None,
-                force: false,
-                verbose: false,
-                sorting: FileSortLogic::SmallestFirst,
-                logfile: None,
-                jobs: None,
-                generate_hashfile: None,
-                mode: HashMode::NoneSelected,
-            })
+            Err(Error::new(ErrorKind::UnknownArgument))
         }
     }
-    fn update_from_arg_matches(
-        &mut self,
-        matches: &ArgMatches,
-    ) -> Result<(), Error<RichFormatter>> {
+    fn update_from_arg_matches(&mut self, matches: &ArgMatches) -> Result<(), clap::error::Error> {
         if let Some(matches) = matches.subcommand_matches("dir") {
             self.path_string = matches.get_one::<String>("directory").unwrap().to_string();
             self.algorithm = *matches.get_one::<HashAlg>("algorithm").unwrap();
@@ -122,14 +106,14 @@ impl FromArgMatches for Arguments {
             self.logfile = matches.get_one::<String>("logfile").cloned();
             self.jobs = matches.get_one::<usize>("jobs").copied();
             self.generate_hashfile = matches.get_one::<String>("generate_hashfile").cloned();
-        }
-        if let Some(matches) = matches.subcommand_matches("file") {
+            return Ok(());
+        } else if let Some(matches) = matches.subcommand_matches("file") {
             self.path_string = matches.get_one::<String>("filepath").unwrap().to_string();
             self.algorithm = *matches.get_one::<HashAlg>("algorithm").unwrap();
+            return Ok(());
         } else {
-            // Todo - return Err<Something>
+            return Err(Error::new(ErrorKind::UnknownArgument));
         }
-        Ok(())
     }
 }
 
