@@ -103,13 +103,7 @@ impl FromArgMatches for Arguments {
                 #[cfg(target_os = "linux")]
                 FileSortLogic::InodeOrder,
                 |v| *v,
-            ); /*{
-                   Some(v) => *v,
-                   #[cfg(target_os = "windows")]
-                   None => FileSortLogic::LargestFirst,
-                   #[cfg(target_os = "linux")]
-                   None => FileSortLogic::InodeOrder,
-               };*/
+            );
             self.logfile = matches.get_one::<String>("logfile").cloned();
             self.jobs = matches.get_one::<u64>("jobs").copied();
             self.generate_hashfile = matches.get_one::<String>("generate_hashfile").cloned();
