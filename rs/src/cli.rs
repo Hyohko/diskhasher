@@ -53,14 +53,14 @@ pub struct Arguments {
 impl FromArgMatches for Arguments {
     fn from_arg_matches(matches: &ArgMatches) -> Result<Self, clap::error::Error> {
         if let Some(matches) = matches.subcommand_matches("dir") {
-            let sorting = match matches.get_one::<FileSortLogic>("sorting") {
-                Some(v) => *v,
+            let sorting = matches.get_one::<FileSortLogic>("sorting").map_or(
                 #[cfg(target_os = "windows")]
-                None => FileSortLogic::LargestFirst,
+                FileSortLogic::LargestFirst,
                 #[cfg(target_os = "linux")]
-                None => FileSortLogic::InodeOrder,
-            };
-            Ok(Arguments {
+                FileSortLogic::InodeOrder,
+                |v| *v,
+            );
+            Ok(Self {
                 path_string: matches.get_one::<String>("directory").unwrap().to_string(),
                 algorithm: *matches.get_one::<HashAlg>("algorithm").unwrap(),
                 pattern: matches.get_one::<String>("pattern").cloned(),
@@ -89,6 +89,7 @@ impl FromArgMatches for Arguments {
             Err(Error::new(ErrorKind::UnknownArgument))
         }
     }
+
     fn update_from_arg_matches(&mut self, matches: &ArgMatches) -> Result<(), clap::error::Error> {
         if let Some(matches) = matches.subcommand_matches("dir") {
             self.path_string = matches.get_one::<String>("directory").unwrap().to_string();
@@ -96,23 +97,29 @@ impl FromArgMatches for Arguments {
             self.pattern = matches.get_one::<String>("pattern").cloned();
             self.force = matches.get_flag("force");
             self.verbose = matches.get_flag("verbose");
-            self.sorting = match matches.get_one::<FileSortLogic>("sorting") {
-                Some(v) => *v,
+            self.sorting = matches.get_one::<FileSortLogic>("sorting").map_or(
                 #[cfg(target_os = "windows")]
-                None => FileSortLogic::LargestFirst,
+                FileSortLogic::LargestFirst,
                 #[cfg(target_os = "linux")]
-                None => FileSortLogic::InodeOrder,
-            };
+                FileSortLogic::InodeOrder,
+                |v| *v,
+            ); /*{
+                   Some(v) => *v,
+                   #[cfg(target_os = "windows")]
+                   None => FileSortLogic::LargestFirst,
+                   #[cfg(target_os = "linux")]
+                   None => FileSortLogic::InodeOrder,
+               };*/
             self.logfile = matches.get_one::<String>("logfile").cloned();
             self.jobs = matches.get_one::<usize>("jobs").copied();
             self.generate_hashfile = matches.get_one::<String>("generate_hashfile").cloned();
-            return Ok(());
+            Ok(())
         } else if let Some(matches) = matches.subcommand_matches("file") {
             self.path_string = matches.get_one::<String>("filepath").unwrap().to_string();
             self.algorithm = *matches.get_one::<HashAlg>("algorithm").unwrap();
-            return Ok(());
+            Ok(())
         } else {
-            return Err(Error::new(ErrorKind::UnknownArgument));
+            Err(Error::new(ErrorKind::UnknownArgument))
         }
     }
 }

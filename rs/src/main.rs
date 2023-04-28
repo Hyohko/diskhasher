@@ -54,7 +54,7 @@ fn main() {
         HashMode::RecursiveDir => {
             let mut myhasher = match Hasher::new(
                 args.algorithm,
-                args.path_string.clone(),
+                &args.path_string,
                 args.pattern,
                 args.logfile,
                 args.jobs,
@@ -72,7 +72,7 @@ fn main() {
             };
         }
         HashMode::SingleFile => {
-            if let Err(err) = hash_single_file(args.path_string, args.algorithm) {
+            if let Err(err) = hash_single_file(&args.path_string, args.algorithm) {
                 error!("[!] Runtime: {err}");
                 return;
             }

@@ -45,9 +45,13 @@ pub struct FileData {
 }
 
 impl FileData {
-    /// FileData constructor - not public, only referenced in
-    /// TryFrom<DirEntry>
-    pub(crate) fn new(size: u64, path: PathBuf, #[cfg(target_os = "linux")] inode: u64) -> Self {
+    /// `FileData` constructor - not public, only referenced in
+    /// `TryFrom<DirEntry>`
+    pub(crate) const fn new(
+        size: u64,
+        path: PathBuf,
+        #[cfg(target_os = "linux")] inode: u64,
+    ) -> Self {
         Self {
             size,
             path,
@@ -57,16 +61,16 @@ impl FileData {
         }
     }
     /// Size of referenced file
-    pub fn size(&self) -> u64 {
+    pub const fn size(&self) -> u64 {
         self.size
     }
     /// Path to referenced file
-    pub fn path(&self) -> &PathBuf {
+    pub const fn path(&self) -> &PathBuf {
         &self.path
     }
     /// [linux] Inode of referenced file
     #[cfg(target_os = "linux")]
-    pub fn inode(&self) -> u64 {
+    pub const fn inode(&self) -> u64 {
         self.inode
     }
     /// File path as a string for debug prints
@@ -74,7 +78,7 @@ impl FileData {
         self.path.display().to_string()
     }
     /// Cryptographic hash as hexstring
-    pub fn hash(&self) -> &String {
+    pub const fn hash(&self) -> &String {
         &self.expected_hash
     }
     /// Permits setting of the hash value during computation

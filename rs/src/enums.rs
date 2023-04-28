@@ -45,31 +45,31 @@ pub enum HashAlg {
 impl ValueEnum for HashAlg {
     fn value_variants<'a>() -> &'a [Self] {
         &[
-            HashAlg::MD5,
-            HashAlg::SHA1,
-            HashAlg::SHA224,
-            HashAlg::SHA256,
-            HashAlg::SHA384,
-            HashAlg::SHA512,
-            HashAlg::SHA3_224,
-            HashAlg::SHA3_256,
-            HashAlg::SHA3_384,
-            HashAlg::SHA3_512,
+            Self::MD5,
+            Self::SHA1,
+            Self::SHA224,
+            Self::SHA256,
+            Self::SHA384,
+            Self::SHA512,
+            Self::SHA3_224,
+            Self::SHA3_256,
+            Self::SHA3_384,
+            Self::SHA3_512,
         ]
     }
 
     fn to_possible_value<'a>(&self) -> Option<PossibleValue> {
         Some(match self {
-            HashAlg::MD5 => PossibleValue::new("md5").help("MD5 (insecure)"),
-            HashAlg::SHA1 => PossibleValue::new("sha1").help("SHA1 (insecure)"),
-            HashAlg::SHA224 => PossibleValue::new("sha224").help("SHA224"),
-            HashAlg::SHA256 => PossibleValue::new("sha256").help("SHA256"),
-            HashAlg::SHA384 => PossibleValue::new("sha384").help("SHA384"),
-            HashAlg::SHA512 => PossibleValue::new("sha512").help("SHA512"),
-            HashAlg::SHA3_224 => PossibleValue::new("sha3-224").help("SHA3-224"),
-            HashAlg::SHA3_256 => PossibleValue::new("sha3-256").help("SHA3-256"),
-            HashAlg::SHA3_384 => PossibleValue::new("sha3-384").help("SHA3-384"),
-            HashAlg::SHA3_512 => PossibleValue::new("sha3-512").help("SHA3-512"),
+            Self::MD5 => PossibleValue::new("md5").help("MD5 (insecure)"),
+            Self::SHA1 => PossibleValue::new("sha1").help("SHA1 (insecure)"),
+            Self::SHA224 => PossibleValue::new("sha224").help("SHA224"),
+            Self::SHA256 => PossibleValue::new("sha256").help("SHA256"),
+            Self::SHA384 => PossibleValue::new("sha384").help("SHA384"),
+            Self::SHA512 => PossibleValue::new("sha512").help("SHA512"),
+            Self::SHA3_224 => PossibleValue::new("sha3-224").help("SHA3-224"),
+            Self::SHA3_256 => PossibleValue::new("sha3-256").help("SHA3-256"),
+            Self::SHA3_384 => PossibleValue::new("sha3-384").help("SHA3-384"),
+            Self::SHA3_512 => PossibleValue::new("sha3-512").help("SHA3-512"),
         })
     }
 }
@@ -92,12 +92,12 @@ impl std::str::FromStr for HashAlg {
                 return Ok(*variant);
             }
         }
-        Err(format!("invalid hash algorithm: {}", s))
+        Err(format!("invalid hash algorithm: {s}"))
     }
 }
 
-/// Option to command line args - sort files from WalkDir
-/// by LargestFirst, SmallestFirst, or in InodeOrder
+/// Option to command line args - sort files from `WalkDir`
+/// by `LargestFirst`, `SmallestFirst`, or in `InodeOrder`
 #[derive(Clone, Copy, Debug)]
 pub enum FileSortLogic {
     LargestFirst,
@@ -110,22 +110,18 @@ impl ValueEnum for FileSortLogic {
     fn value_variants<'a>() -> &'a [Self] {
         &[
             #[cfg(target_os = "linux")]
-            FileSortLogic::InodeOrder,
-            FileSortLogic::LargestFirst,
-            FileSortLogic::SmallestFirst,
+            Self::InodeOrder,
+            Self::LargestFirst,
+            Self::SmallestFirst,
         ]
     }
 
     fn to_possible_value<'a>(&self) -> Option<PossibleValue> {
         Some(match self {
             #[cfg(target_os = "linux")]
-            FileSortLogic::InodeOrder => {
-                PossibleValue::new("inode-order").help("Sort by inode order")
-            }
-            FileSortLogic::LargestFirst => {
-                PossibleValue::new("largest-first").help("Sort by largest first")
-            }
-            FileSortLogic::SmallestFirst => {
+            Self::InodeOrder => PossibleValue::new("inode-order").help("Sort by inode order"),
+            Self::LargestFirst => PossibleValue::new("largest-first").help("Sort by largest first"),
+            Self::SmallestFirst => {
                 PossibleValue::new("smallest-first").help("Sort by smallest first")
             }
         })
@@ -150,6 +146,6 @@ impl std::str::FromStr for FileSortLogic {
                 return Ok(*variant);
             }
         }
-        Err(format!("invalid sorting option: {}", s))
+        Err(format!("invalid sorting option: {s}"))
     }
 }

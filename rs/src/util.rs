@@ -35,7 +35,7 @@ use {
 
 /// Canonicalizes a file path, checking to see that the file exists and returns
 /// an absolute path to that file.
-/// TODO: Once PathBuf::absolute() is part of Rust Stable, replace this function
+/// TODO: Once `PathBuf::absolute()` is part of Rust Stable, replace this function
 pub(crate) fn canonicalize_filepath(
     file_path: &str,
     containing_dir: &Path,
@@ -58,17 +58,21 @@ pub(crate) fn canonicalize_filepath(
 /// Validates that at least the file name portion of a file path matches
 /// the given regular expression.
 pub(crate) fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
-    if let Some(path) = file_path.file_name() {
-        if let Some(str_path) = path.to_str() {
-            hash_regex.is_match(str_path)
-        } else {
-            error!("[-] Failed to convert path to string");
+    file_path.file_name().map_or_else(
+        || {
+            error!("[-] Failed to retrieve file name from path object");
             false
-        }
-    } else {
-        error!("[-] Failed to retrieve file name from path object");
-        false
-    }
+        },
+        |path| {
+            path.to_str().map_or_else(
+                || {
+                    error!("[-] Failed to convert path to string");
+                    false
+                },
+                |str_path| hash_regex.is_match(str_path),
+            )
+        },
+    )
 }
 
 /// Takes a line from a hashfile in the format "<hash hexstring> <path to file>",

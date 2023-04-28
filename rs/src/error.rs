@@ -38,7 +38,7 @@ custom_error! {pub HasherError
 
 impl From<TemplateError> for HasherError {
     fn from(error: TemplateError) -> Self {
-        HasherError::Style {
+        Self::Style {
             why: format!("{error:?}"),
         }
     }
@@ -47,7 +47,7 @@ impl From<TemplateError> for HasherError {
 // todo https://stackoverflow.com/questions/53934888/how-to-include-the-file-path-in-an-io-error-in-rust
 impl From<std::io::Error> for HasherError {
     fn from(error: std::io::Error) -> Self {
-        HasherError::Io {
+        Self::Io {
             why: format!("{:?} => {error:?}", error.kind()),
         }
     }
@@ -55,7 +55,7 @@ impl From<std::io::Error> for HasherError {
 
 impl From<StripPrefixError> for HasherError {
     fn from(error: StripPrefixError) -> Self {
-        HasherError::Style {
+        Self::Parse {
             why: format!("{error:?}"),
         }
     }

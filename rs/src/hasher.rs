@@ -88,7 +88,7 @@ impl Hasher {
     /// number of concurrent jobs we will run.
     pub fn new(
         alg: HashAlg,
-        root_dir: String,
+        root_dir: &str,
         hashfile_pattern: Option<String>,
         logfile: Option<String>,
         jobs: Option<usize>,
@@ -250,7 +250,7 @@ impl Hasher {
         Ok(spinner)
     }
 
-    /// Split the vector of files from recursive_dir into hash files and non-hashfiles.
+    /// Split the vector of files from `recursive_dir` into hash files and non-hashfiles.
     fn identify_hashfiles(
         &mut self,
         file_vec: Vec<FileData>,
