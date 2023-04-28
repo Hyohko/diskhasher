@@ -45,7 +45,7 @@ pub struct Arguments {
     pub verbose: bool,
     pub sorting: FileSortLogic,
     pub logfile: Option<String>,
-    pub jobs: Option<usize>,
+    pub jobs: Option<u64>,
     pub generate_hashfile: Option<String>,
     pub mode: HashMode,
 }
@@ -68,7 +68,7 @@ impl FromArgMatches for Arguments {
                 verbose: matches.get_flag("verbose"),
                 sorting,
                 logfile: matches.get_one::<String>("logfile").cloned(),
-                jobs: matches.get_one::<usize>("jobs").copied(),
+                jobs: matches.get_one::<u64>("jobs").copied(),
                 generate_hashfile: matches.get_one::<String>("generate_hashfile").cloned(),
                 mode: HashMode::RecursiveDir,
             })
@@ -111,7 +111,7 @@ impl FromArgMatches for Arguments {
                    None => FileSortLogic::InodeOrder,
                };*/
             self.logfile = matches.get_one::<String>("logfile").cloned();
-            self.jobs = matches.get_one::<usize>("jobs").copied();
+            self.jobs = matches.get_one::<u64>("jobs").copied();
             self.generate_hashfile = matches.get_one::<String>("generate_hashfile").cloned();
             Ok(())
         } else if let Some(matches) = matches.subcommand_matches("file") {
@@ -203,7 +203,7 @@ pub fn parse_cli() -> Result<Arguments, clap::error::Error> {
                     .short('j')
                     .long("jobs")
                     .required(false)
-                    .value_parser(value_parser!(u8).range(1..))
+                    .value_parser(value_parser!(u64).range(1..=255))
                     .help("[Optional] number of jobs (will be capped by number of cores)")
                     .long_help(
                         "For readability, the number of concurrently running threads \

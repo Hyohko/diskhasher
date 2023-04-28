@@ -91,7 +91,7 @@ impl Hasher {
         root_dir: &str,
         hashfile_pattern: Option<String>,
         logfile: Option<String>,
-        jobs: Option<usize>,
+        jobs: Option<u64>,
         gen_hashfile: Option<String>,
     ) -> Result<Self, HasherError> {
         let hash_regex: Regex;
@@ -120,11 +120,13 @@ impl Hasher {
             });
         }
 
-        let mut avail_threads = available_parallelism()
+        let mut avail_threads: u64 = available_parallelism()
             .map_err(|err| HasherError::Threading {
                 why: format!("{err}: Couldn't get number of available threads"),
             })?
-            .get();
+            .get()
+            .try_into()
+            .expect("Failed to cast usize to u64, unrecoverable");
 
         avail_threads = if let Some(total_threads) = jobs {
             if total_threads > avail_threads {
@@ -152,7 +154,7 @@ impl Hasher {
         let mp = MultiProgress::new();
         Ok(Self {
             pool: threadpool::Builder::new()
-                .num_threads(avail_threads)
+                .num_threads(avail_threads as usize)
                 .build(),
             alg,
             root,
