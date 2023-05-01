@@ -317,14 +317,14 @@ impl Hasher {
     /// Assign a single hash job to one of the threads in our threadpool
     fn spawn_single_job(
         &mut self,
-        file_data: &FileData,
+        mut file_data: FileData,
         bar: &ProgressBar,
         force: bool,
         verbose: bool,
     ) {
-        let mut fd_clone = file_data.clone();
+        //let mut fd_clone = file_data.clone();
         if let Some(mut v) = self.hashmap.remove(file_data.path()) {
-            fd_clone.set_hash(&mut v);
+            file_data.set_hash(&mut v);
         } else if !force {
             warn!("[!] {:?} => No hash found", file_data.path());
             bar.inc(1);
@@ -335,7 +335,7 @@ impl Hasher {
             .as_ref()
             .map_or_else(|| None, |_v| Some(self.root.clone()));
         let moved_args = ThreadFuncArgs {
-            fdata: fd_clone,
+            fdata: file_data,
             alg: self.alg,
             force,
             verbose,
@@ -371,7 +371,7 @@ impl Hasher {
             .mp
             .add(ProgressBar::new(num_files as u64).with_style(style));
         while let Some(ck) = self.checkedfiles.pop() {
-            self.spawn_single_job(&ck, &bar, force, verbose);
+            self.spawn_single_job(ck, &bar, force, verbose);
             // every 5000 hashes, shrink the memory space of the hashmap
             if num_files % 5000 == 0 {
                 self.hashmap.shrink_to_fit();

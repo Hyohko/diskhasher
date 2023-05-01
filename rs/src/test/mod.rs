@@ -105,7 +105,7 @@ mod path_matches_regex {
             PathBuf::from("result1.txt"),             // numeral
             PathBuf::from("resultAAAA.txt"),          //extra chars
             PathBuf::from("result is this file.txt"), // whitepace
-            PathBuf::from("result_bohème.txt"),      // non-ascii chars
+            PathBuf::from("result_bohème.txt"),       // non-ascii chars
         ];
         for p in path {
             assert!(path_matches_regex(&regex, &p));
@@ -206,15 +206,22 @@ mod implements_traits {
 
     #[test]
     fn debug_print() {
-        let hasher: Hasher =
-            Hasher::new(HashAlg::MD5, String::from("./"), None, None, None, None).unwrap();
+        let hasher: Hasher = Hasher::new(
+            HashAlg::MD5,
+            &String::from("./").clone(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         println!("{:?}", hasher);
     }
 
     #[test]
     fn can_clone() {
         let hasher: Hasher =
-            Hasher::new(HashAlg::MD5, String::from("./"), None, None, None, None).unwrap();
+            Hasher::new(HashAlg::MD5, &String::from("./"), None, None, None, None).unwrap();
         let _myclone = hasher.clone();
     }
 }
@@ -245,7 +252,7 @@ mod validate_hexstring {
             "abcdef1234567890abcdef1234567890aabbccdda", // one too long
             "abcdef1234567890abc ef1234567890aabbccdd",  // space in the middle
             "abcdef1234567890abcQef1234567890aabbccdd",  // non-hex char in the middle
-            "abcdef1234567890abcèef1234567890aabbccdd", // unicode char in the middle
+            "abcdef1234567890abcèef1234567890aabbccdd",  // unicode char in the middle
         ];
         for b in bad_strings {
             assert!(validate_hexstring(b).is_err());
