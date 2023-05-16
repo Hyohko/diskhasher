@@ -23,7 +23,10 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
-use {custom_error::custom_error, indicatif::style::TemplateError, std::path::StripPrefixError};
+use {
+    custom_error::custom_error, indicatif::style::TemplateError, minisign::PError,
+    std::path::StripPrefixError,
+};
 
 custom_error! {pub HasherError
     Argument{why: String} = "CLI argument error => {why}",
@@ -34,6 +37,7 @@ custom_error! {pub HasherError
     Parse{why: String} = "Parse error => {why}",
     Io{why: String} = "IO Failure => {why}",
     Style{why: String} = "ProgressBar style error => {why}",
+    Signature{why: String} = "Digital signature error => {why}"
 }
 
 impl From<TemplateError> for HasherError {
@@ -55,6 +59,14 @@ impl From<std::io::Error> for HasherError {
 
 impl From<StripPrefixError> for HasherError {
     fn from(error: StripPrefixError) -> Self {
+        Self::Parse {
+            why: format!("{error:?}"),
+        }
+    }
+}
+
+impl From<PError> for HasherError {
+    fn from(error: PError) -> Self {
         Self::Parse {
             why: format!("{error:?}"),
         }

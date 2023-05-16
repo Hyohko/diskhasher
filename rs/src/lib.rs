@@ -28,6 +28,7 @@ mod constants;
 mod enums;
 mod error;
 mod filedata;
+mod filesigner;
 mod hasher;
 mod macros;
 mod threadfunc;
@@ -40,6 +41,7 @@ extern crate log;
 // The only exportable functionality we expose to any main function
 pub use crate::{
     cli::{parse_cli, Arguments, HashMode},
+    filesigner::{sign_hash_file, verify_hash_file},
     hasher::Hasher,
     threadfunc::hash_single_file,
 };

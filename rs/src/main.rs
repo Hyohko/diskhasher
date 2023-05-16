@@ -29,7 +29,7 @@ extern crate pretty_env_logger;
 extern crate log;
 
 use {
-    dkhash::{hash_single_file, parse_cli, HashMode, Hasher},
+    dkhash::{hash_single_file, parse_cli, sign_hash_file, verify_hash_file, HashMode, Hasher},
     log::LevelFilter,
 };
 
@@ -73,6 +73,18 @@ fn main() {
         }
         HashMode::SingleFile => {
             if let Err(err) = hash_single_file(&args.path_string, args.algorithm) {
+                error!("[!] Runtime: {err}");
+                return;
+            }
+        }
+        HashMode::SignHashFile => {
+            if let Err(err) = sign_hash_file(args.path_string, args.public_key, args.private_key) {
+                error!("[!] Runtime: {err}");
+                return;
+            }
+        }
+        HashMode::VerifyHashFile => {
+            if let Err(err) = verify_hash_file(args.path_string, args.public_key.unwrap()) {
                 error!("[!] Runtime: {err}");
                 return;
             }
