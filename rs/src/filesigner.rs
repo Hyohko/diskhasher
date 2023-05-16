@@ -40,8 +40,8 @@ pub fn gen_keypair(prefix: &str, comment: Option<&str>) -> Result<(), HasherErro
     KeyPair::generate_and_write_encrypted_keypair(
         File::create(pubstr)?,
         File::create(privstr)?,
-        None,
-        None,
+        comment,
+        None, // always prompt
     )
     .expect("Key generation is infalliable, but we have an error for some reason");
     Ok(())
