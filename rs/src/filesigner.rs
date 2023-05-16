@@ -3,28 +3,10 @@ use {
     minisign::{KeyPair, PublicKey, PublicKeyBox, SecretKeyBox, SignatureBox},
     std::{
         fs::{canonicalize, read_to_string, File},
-        io::{stdin, Write},
+        io::Write,
         path::{Path, PathBuf},
-        process,
     },
 };
-
-fn prompt_for_new_keypair() {
-    println!("Do you want to generate a new keypair? (Y/N)\n> ");
-    let mut user_input = String::new();
-    let stdin = stdin();
-    loop {
-        stdin.read_line(&mut user_input).expect("");
-        match user_input.trim().chars().nth(0) {
-            Some('y') | Some('Y') => return,
-            Some('n') | Some('N') | Some('q') | Some('Q') => {
-                error!("No keypair generated, exiting");
-                process::exit(-1);
-            }
-            _ => println!("[-] Invalid input, enter 'yes' or 'no'"),
-        }
-    }
-}
 
 fn load_pubkey(pubkey_path: String) -> Result<PublicKeyBox, HasherError> {
     let pubkey = canonicalize(Path::new(&pubkey_path))?;
@@ -35,7 +17,7 @@ fn load_pubkey(pubkey_path: String) -> Result<PublicKeyBox, HasherError> {
         })
     } else {
         let contents = read_to_string(pubkey)?;
-        Ok(PublicKeyBox::from_string(&contents)?) // TODO From(PError to HasherError)
+        Ok(PublicKeyBox::from_string(&contents)?)
     }
 }
 
@@ -52,37 +34,25 @@ fn load_privkey(privkey_path: String) -> Result<SecretKeyBox, HasherError> {
     }
 }
 
-fn get_or_create_keypair(
-    public_key: Option<String>,
-    private_key: Option<String>,
-) -> Result<KeyPair, HasherError> {
-    if public_key == None || private_key == None {
-        warn!("Public Key or Private Key is missing");
-        prompt_for_new_keypair();
-        let KeyPair { pk, sk } = KeyPair::generate_encrypted_keypair(None)
-            .expect("Key generation is infalliable, but we have an error for some reason");
+pub fn gen_keypair(prefix: &str) -> Result<KeyPair, HasherError> {
+    let KeyPair { pk, sk } = KeyPair::generate_encrypted_keypair(None)
+        .expect("Key generation is infalliable, but we have an error for some reason");
 
-        // Write keypair to disk
-        {
-            let pubstr = "./hashsign.pub";
-            let privstr = "./hashsign.key";
-            info!("Writing keys to disk:\n\tPublic key => {pubstr}\n\tPrivate key => {privstr}");
+    // Write keypair to disk
+    {
+        let pubstr = format!("./{prefix}.pub");
+        let privstr = format!("./{prefix}.key");
+        info!("Writing keys to disk:\n\tPublic key => {pubstr}\n\tPrivate key => {privstr}");
 
-            let mut pk_file = File::create(pubstr)?;
-            let pk_box_str = pk.to_box()?.to_string();
-            pk_file.write(pk_box_str.as_bytes()).ok();
+        let mut pk_file = File::create(pubstr)?;
+        let pk_box_str = pk.to_box()?.to_string();
+        pk_file.write(pk_box_str.as_bytes()).ok();
 
-            let mut sk_file = File::create(privstr)?;
-            let sk_box_str = sk.to_box(None)?.to_string();
-            sk_file.write(sk_box_str.as_bytes()).ok();
-        }
-
-        return Ok(KeyPair { pk, sk });
+        let mut sk_file = File::create(privstr)?;
+        let sk_box_str = sk.to_box(None)?.to_string();
+        sk_file.write(sk_box_str.as_bytes()).ok();
     }
 
-    // Unwrap b/c we've already checked for None
-    let pk = load_pubkey(public_key.unwrap())?.into_public_key()?;
-    let sk = load_privkey(private_key.unwrap())?.into_secret_key(None)?;
     Ok(KeyPair { pk, sk })
 }
 
@@ -102,11 +72,15 @@ fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherEr
     let mut sigfile: PathBuf = hashfile.clone();
     add_extension(&mut sigfile, "minisig");
 
-    //let sigstring = read_to_string(sigfile)?;
-    let sigbox = SignatureBox::from_file(&sigfile)?;
-
-    let f = File::open(&hashfile)?;
-    let verified = minisign::verify(pk, &sigbox, &f, true, false, false);
+    let signature_box = SignatureBox::from_file(&sigfile)?;
+    let verified = minisign::verify(
+        pk,
+        &signature_box,
+        File::open(hashfile)?,
+        true,
+        false,
+        false,
+    );
     match verified {
         Ok(()) => info!("[+] Signature is valid"),
         Err(_) => error!("[!] Signature failed to validate"),
@@ -116,8 +90,8 @@ fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherEr
 
 pub fn sign_hash_file(
     hashfile_path: String,
-    public_key: Option<String>,
-    private_key: Option<String>,
+    public_key: String,
+    private_key: String,
 ) -> Result<(), HasherError> {
     // Read the hashfile as bytes
     let hashfile = canonicalize(Path::new(&hashfile_path))?;
@@ -128,7 +102,8 @@ pub fn sign_hash_file(
         });
     }
 
-    let KeyPair { pk, sk } = get_or_create_keypair(public_key, private_key)?;
+    let pk = load_pubkey(public_key)?.into_public_key()?;
+    let sk = load_privkey(private_key)?.into_secret_key(None)?;
     let sigbox: SignatureBox;
     {
         let f = File::open(&hashfile)?;
@@ -141,7 +116,7 @@ pub fn sign_hash_file(
     info!("Writing signature file\n\t==> {:?}", sigfile);
     {
         let mut g = File::create(sigfile)?;
-        g.write(sigbox.into_string().as_bytes())?;
+        g.write_all(sigbox.into_string().as_bytes())?;
     }
     validate_signature(&pk, &hashfile)
 }

@@ -36,6 +36,7 @@ pub enum HashMode {
     SingleFile,
     SignHashFile,
     VerifyHashFile,
+    GenKeyPair,
     NoneSelected,
 }
 
@@ -52,6 +53,7 @@ pub struct Arguments {
     pub mode: HashMode,
     pub public_key: Option<String>,
     pub private_key: Option<String>,
+    pub prefix: String,
 }
 
 impl FromArgMatches for Arguments {
@@ -77,6 +79,7 @@ impl FromArgMatches for Arguments {
                 mode: HashMode::RecursiveDir,
                 public_key: None,
                 private_key: None,
+                prefix: "".to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("file") {
             Ok(Self {
@@ -92,6 +95,7 @@ impl FromArgMatches for Arguments {
                 mode: HashMode::SingleFile,
                 public_key: None,
                 private_key: None,
+                prefix: "".to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("sign") {
             Ok(Self {
@@ -107,6 +111,7 @@ impl FromArgMatches for Arguments {
                 mode: HashMode::SignHashFile,
                 public_key: matches.get_one::<String>("public_key").cloned(),
                 private_key: matches.get_one::<String>("private_key").cloned(),
+                prefix: "".to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("verify") {
             Ok(Self {
@@ -122,6 +127,23 @@ impl FromArgMatches for Arguments {
                 mode: HashMode::VerifyHashFile,
                 public_key: matches.get_one::<String>("public_key").cloned(),
                 private_key: None,
+                prefix: "".to_string(),
+            })
+        } else if let Some(matches) = matches.subcommand_matches("genkey") {
+            Ok(Self {
+                path_string: "".to_string(),
+                algorithm: HashAlg::MD5, //Ignored
+                pattern: None,
+                force: true,
+                verbose: true,
+                sorting: FileSortLogic::SmallestFirst, //unused
+                logfile: None,
+                jobs: None,
+                generate_hashfile: None,
+                mode: HashMode::GenKeyPair,
+                public_key: None,
+                private_key: None,
+                prefix: matches.get_one::<String>("prefix").unwrap().to_string(),
             })
         } else {
             Err(Error::new(ErrorKind::UnknownArgument))
@@ -158,6 +180,9 @@ impl FromArgMatches for Arguments {
         } else if let Some(matches) = matches.subcommand_matches("verify") {
             self.path_string = matches.get_one::<String>("filepath").unwrap().to_string();
             self.public_key = matches.get_one::<String>("public_key").cloned();
+            Ok(())
+        } else if let Some(matches) = matches.subcommand_matches("genkey") {
+            self.prefix = matches.get_one::<String>("prefix").unwrap().to_string();
             Ok(())
         } else {
             Err(Error::new(ErrorKind::UnknownArgument))
@@ -316,20 +341,21 @@ fn sign_subcommand() -> Command {
                 .long_help(
                     "After generating a hashfile, use this command to \
                     apply an Ed22519 Digital Signature to the file. If no pre-existing \
-                    public/private keypair exist, you will be prompted to create one",
+                    public/private keypair exist, you must create one using the 'genkey' \
+                    command",
                 ),
         )
         .arg(
             Arg::new("public_key")
                 .long("pub")
-                .required(false)
+                .required(true)
                 .help("Path to public key")
                 .long_help("Path to an Ed22519 Public Key File, in the MiniSign format."),
         )
         .arg(
             Arg::new("private_key")
                 .long("priv")
-                .required(false)
+                .required(true)
                 .help("Path to encrypted private key")
                 .long_help(
                     "Path to an Ed22519 Private Key File, in the MiniSign format. \
@@ -360,6 +386,25 @@ fn verify_subcommand() -> Command {
         )
 }
 
+fn genkey_subcommand() -> Command {
+    Command::new("genkey")
+        .about("Generate a new Ed22519 Public/Private keypair for signing and validating files")
+        .arg(
+            Arg::new("prefix")
+                .short('p')
+                .long("prefix")
+                .required(true)
+                .help("File prefix for new Ed22519 keypair")
+                .long_help(
+                    "Generate a new public/private Ed22519 keypair using this prefix to create \
+                    the filenames. E.g. if the prefix is 'mykey', the public \
+                    key will be created at './mykey.pub' and the corresponding \
+                    private key will be created at './mykey.key'. You will be prompted to \
+                    enter a password to secure the private key.",
+                ),
+        )
+}
+
 pub fn parse_cli() -> Result<Arguments, clap::error::Error> {
     let alg_arg = Arg::new("algorithm")
         .short('a')
@@ -383,6 +428,7 @@ pub fn parse_cli() -> Result<Arguments, clap::error::Error> {
         .subcommand(file_subcommand(&alg_arg))
         .subcommand(sign_subcommand())
         .subcommand(verify_subcommand())
+        .subcommand(genkey_subcommand())
         .max_term_width(80)
         .get_matches();
     Arguments::from_arg_matches(&args)
