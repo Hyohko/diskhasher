@@ -337,12 +337,13 @@ fn sign_subcommand() -> Command {
         .arg(
             Arg::new("filepath")
                 .required(true)
-                .help("Path to the file to be signed")
+                .help("Path to the file to be signed (see --help for details)")
                 .long_help(
                     "After generating a hashfile, use this command to \
                     apply an Ed22519 Digital Signature to the file. If no pre-existing \
                     public/private keypair exist, you must create one using the 'genkey' \
-                    command",
+                    command. If the file you are signing is at '/path/to/hashfile.txt', for \
+                    example, then your signature file will be written to '/path/to/hashfile.txt.minisig'",
                 ),
         )
         .arg(
@@ -366,15 +367,15 @@ fn sign_subcommand() -> Command {
 
 fn verify_subcommand() -> Command {
     Command::new("verify")
-        .about("Validate the cryptographic checksum of a single file")
+        .about("Validate the digital signature of a file")
         .arg(
             Arg::new("filepath")
                 .required(true)
-                .help("Path to the hashfile to be signed")
+                .help("Path to the file being verified (see --help for details)")
                 .long_help(
-                    "After generating a hashfile, use this command to \
-                    apply an Ed22519 Digital Signature to the file. If no pre-existing \
-                    public/private keypair exist, you will be prompted to create one",
+                    "The signature of a file is stored in a separate file in the same directory with \
+                    the extension '.minisig' - for example, if the file being validated was at \
+                    '/path/to/hashfile.txt', then the signature file must be at '/path/to/hashfile.txt.minisig'",
                 ),
         )
         .arg(
@@ -394,7 +395,7 @@ fn genkey_subcommand() -> Command {
                 .short('p')
                 .long("prefix")
                 .required(true)
-                .help("File prefix for new Ed22519 keypair")
+                .help("Prefix for new keypair (see --help for details)")
                 .long_help(
                     "Generate a new public/private Ed22519 keypair using this prefix to create \
                     the filenames. E.g. if the prefix is 'mykey', the public \
