@@ -33,14 +33,14 @@ use {
     },
 };
 
-pub fn gen_keypair(prefix: &str, comment: Option<&str>) -> Result<(), HasherError> {
+pub fn gen_keypair(prefix: &str, comment: Option<String>) -> Result<(), HasherError> {
     let pubstr = format!("./{prefix}.pub");
     let privstr = format!("./{prefix}.key");
     info!("Writing keys to disk:\n\tPublic key => {pubstr}\n\tPrivate key => {privstr}");
     KeyPair::generate_and_write_encrypted_keypair(
         File::create(pubstr)?,
         File::create(privstr)?,
-        comment,
+        comment.as_deref(),
         None, // always prompt
     )
     .expect("Key generation is infalliable, but we have an error for some reason");
@@ -70,10 +70,12 @@ fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherEr
     Ok(())
 }
 
-pub fn sign_hash_file(
+pub fn sign_file(
     hashfile_path: String,
     public_key: String,
     private_key: String,
+    trusted_comment: Option<String>,
+    untrusted_comment: Option<String>,
 ) -> Result<(), HasherError> {
     let hashfile = canonicalize(Path::new(&hashfile_path))?;
     if !hashfile.is_file() {
@@ -90,7 +92,13 @@ pub fn sign_hash_file(
     {
         // scope to drop SecretKey as soon as it is no longer needed
         let sk: SecretKey = SecretKey::from_file(private_key, None)?;
-        sigbox = minisign::sign(None, &sk, File::open(&hashfile)?, None, None)?;
+        sigbox = minisign::sign(
+            None,
+            &sk,
+            File::open(&hashfile)?,
+            trusted_comment.as_deref(),
+            untrusted_comment.as_deref(),
+        )?;
     }
 
     // Write signature to file
@@ -103,7 +111,7 @@ pub fn sign_hash_file(
     validate_signature(&pk, &hashfile)
 }
 
-pub fn verify_hash_file(hashfile_path: String, public_key: String) -> Result<(), HasherError> {
+pub fn verify_file(hashfile_path: String, public_key: String) -> Result<(), HasherError> {
     let hashfile = canonicalize(Path::new(&hashfile_path))?;
     if !hashfile.is_file() {
         return Err(HasherError::File {

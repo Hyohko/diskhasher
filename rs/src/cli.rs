@@ -34,8 +34,8 @@ use clap::{
 pub enum HashMode {
     RecursiveDir,
     SingleFile,
-    SignHashFile,
-    VerifyHashFile,
+    SignFile,
+    VerifyFile,
     GenKeyPair,
     NoneSelected,
 }
@@ -108,7 +108,7 @@ impl FromArgMatches for Arguments {
                 logfile: None,
                 jobs: None,
                 generate_hashfile: None,
-                mode: HashMode::SignHashFile,
+                mode: HashMode::SignFile,
                 public_key: matches.get_one::<String>("public_key").cloned(),
                 private_key: matches.get_one::<String>("private_key").cloned(),
                 prefix: "".to_string(),
@@ -124,7 +124,7 @@ impl FromArgMatches for Arguments {
                 logfile: None,
                 jobs: None,
                 generate_hashfile: None,
-                mode: HashMode::VerifyHashFile,
+                mode: HashMode::VerifyFile,
                 public_key: matches.get_one::<String>("public_key").cloned(),
                 private_key: None,
                 prefix: "".to_string(),
