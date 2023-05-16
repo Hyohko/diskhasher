@@ -97,7 +97,7 @@ fn main() {
             }
         }
         HashMode::GenKeyPair => {
-            if let Err(err) = gen_keypair(&args.prefix) {
+            if let Err(err) = gen_keypair(&args.prefix, None) {
                 error!("[!] Runtime: {err}");
                 return;
             }

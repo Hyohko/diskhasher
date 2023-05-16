@@ -33,23 +33,17 @@ use {
     },
 };
 
-pub fn gen_keypair(prefix: &str) -> Result<(), HasherError> {
-    let KeyPair { pk, sk } = KeyPair::generate_encrypted_keypair(None)
-        .expect("Key generation is infalliable, but we have an error for some reason");
-
+pub fn gen_keypair(prefix: &str, comment: Option<&str>) -> Result<(), HasherError> {
     let pubstr = format!("./{prefix}.pub");
     let privstr = format!("./{prefix}.key");
     info!("Writing keys to disk:\n\tPublic key => {pubstr}\n\tPrivate key => {privstr}");
-    {
-        let mut pk_file = File::create(pubstr)?;
-        let pk_box_str = pk.to_box()?.to_string();
-        pk_file.write_all(pk_box_str.as_bytes()).ok();
-    }
-    {
-        let mut sk_file = File::create(privstr)?;
-        let sk_box_str = sk.to_box(None)?.to_string();
-        sk_file.write_all(sk_box_str.as_bytes()).ok();
-    }
+    KeyPair::generate_and_write_encrypted_keypair(
+        File::create(pubstr)?,
+        File::create(privstr)?,
+        None,
+        None,
+    )
+    .expect("Key generation is infalliable, but we have an error for some reason");
     Ok(())
 }
 
