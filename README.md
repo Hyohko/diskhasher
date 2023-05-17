@@ -269,10 +269,10 @@ Arguments:
   <filepath>
           After generating a hashfile, use this command to apply an Ed22519
           Digital Signature to the file. If no pre-existing public/private
-          keypair exist, you must create one using the 'genkey' command. 
-          
-          FILE EXTENSION EXAMPLE: 
-          
+          keypair exist, you must create one using the 'genkey' command.
+
+          FILE EXTENSION EXAMPLE:
+
           If the file you are signing is at '/path/to/hashfile.txt', then your
           signature file will be have the key identifier number appended to it.
           If your key id is '942505F94A549326' and you are signing
@@ -319,8 +319,8 @@ Arguments:
           The signature of a file is stored in a separate file which must be
           kept in the same directory as the original file. The signature file
           must end with a hexadecimal extension matching the key identifier of
-          the corresponding public key. 
-          
+          the corresponding public key.
+
           For example, if the file being validated is at '/path/to/hashfile.txt'
           and the key id of the public key is '942505F94A549326', then the
           signature file must be at '/path/to/hashfile.txt.942505F94A549326'
