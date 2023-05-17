@@ -78,14 +78,17 @@ fn main() {
             }
         }
         HashMode::SignFile => {
-            if let Err(err) = sign_file(
+            match sign_file(
                 args.path_string,
                 args.keyfile.unwrap(),
                 None, //TODO - allow comments
                 None,
             ) {
-                error!("[!] Runtime: {err}");
-                return;
+                Ok(()) => info!("[+] File signed successfully"),
+                Err(err) => {
+                    error!("[!] Failed to sign file");
+                    error!("[!] Runtime: {err}")
+                }
             }
         }
         HashMode::VerifyFile => match verify_file(args.path_string, args.keyfile.unwrap()) {

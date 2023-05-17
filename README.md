@@ -364,6 +364,10 @@ Options:
           will be created at './mykey.key'. You will be prompted to enter a
           password to secure the private key.
 
+          Note that in order to generate a new keypair with the same prefix, you
+          have to explicitly delete or rename the old keypair before 'genkey'
+          will allow you to create a new one.
+
   -h, --help
           Print help (see a summary with '-h')
 

@@ -397,7 +397,9 @@ fn genkey_subcommand() -> Command {
                     the filenames. E.g. if the prefix is 'mykey', the public \
                     key will be created at './mykey.pub' and the corresponding \
                     private key will be created at './mykey.key'. You will be prompted to \
-                    enter a password to secure the private key.",
+                    enter a password to secure the private key.\n\nNote that in order to generate \
+                    a new keypair with the same prefix, you have to explicitly delete or rename the old \
+                    keypair before 'genkey' will allow you to create a new one.",
                 ),
         )
 }

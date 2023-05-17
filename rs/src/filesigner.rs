@@ -25,7 +25,7 @@
 */
 use {
     crate::{error::HasherError, util::add_extension},
-    cpu_endian, hex,
+    cpu_endian::{working, Endian},
     minisign::{KeyPair, PublicKey, SecretKey, SignatureBox},
     std::{
         fs::{canonicalize, File},
@@ -35,12 +35,22 @@ use {
 };
 
 pub fn gen_keypair(prefix: &str, comment: Option<String>) -> Result<(), HasherError> {
-    let pubstr = format!("./{prefix}.pub");
-    let privstr = format!("./{prefix}.key");
-    info!("Writing keys to disk:\n\tPublic key => {pubstr}\n\tPrivate key => {privstr}");
+    let paths = [format!("./{prefix}.pub"), format!("./{prefix}.key")];
+    for st in paths.iter() {
+        if Path::new(&st).exists() {
+            return Err(HasherError::File {
+                path: st.to_string(),
+                why: "Keyfile already exists, delete and run 'genkey' again".to_string(),
+            });
+        }
+    }
+    info!(
+        "Writing keys to disk:\n\tPublic key => {}\n\tPrivate key => {}",
+        paths[0], paths[1]
+    );
     KeyPair::generate_and_write_encrypted_keypair(
-        File::create(pubstr)?,
-        File::create(privstr)?,
+        File::create(&paths[0])?,
+        File::create(&paths[1])?,
         comment.as_deref(),
         None, // always prompt
     )
@@ -51,13 +61,13 @@ pub fn gen_keypair(prefix: &str, comment: Option<String>) -> Result<(), HasherEr
 /// Hexencode a public key's keynum, correcting for endianness -
 /// output will be in Big Endian
 fn keynum_to_string(pk: &PublicKey) -> String {
-    let outstr = match cpu_endian::working() {
-        cpu_endian::Endian::Little => {
+    let outstr = match working() {
+        Endian::Little => {
             let mut out = pk.keynum().to_vec();
             out.reverse();
             hex::encode(out)
         }
-        cpu_endian::Endian::Big => hex::encode(pk.keynum()),
+        Endian::Big => hex::encode(pk.keynum()),
         _ => panic!("If it's not BigEndian or LittleEndian, you're out of luck"),
     };
     outstr.to_uppercase()
@@ -69,6 +79,7 @@ pub fn sign_file(
     trusted_comment: Option<String>,
     untrusted_comment: Option<String>,
 ) -> Result<(), HasherError> {
+    info!("[+] Creating digital signature for {hashfile_path}");
     let hashfile = canonicalize(Path::new(&hashfile_path))?;
     if !hashfile.is_file() {
         return Err(HasherError::File {
@@ -106,7 +117,7 @@ pub fn sign_file(
 
 fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherError> {
     let mut sigfile: PathBuf = hashfile.clone();
-    add_extension(&mut sigfile, keynum_to_string(&pk));
+    add_extension(&mut sigfile, keynum_to_string(pk));
     info!(
         "Loading signature file\n\t=> {}",
         sigfile.display().to_string()
@@ -123,6 +134,7 @@ fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherEr
 }
 
 pub fn verify_file(hashfile_path: String, public_key: String) -> Result<(), HasherError> {
+    info!("[+] Validating digital signature of {hashfile_path}");
     let hashfile = canonicalize(Path::new(&hashfile_path))?;
     if !hashfile.is_file() {
         return Err(HasherError::File {
