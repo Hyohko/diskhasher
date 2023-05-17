@@ -1,5 +1,5 @@
 /*
-    DISKHASHER v0.3 - 2023 by Hyohko
+    DISKHASHER - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -28,6 +28,7 @@ mod constants;
 mod enums;
 mod error;
 mod filedata;
+mod filesigner;
 mod hasher;
 mod macros;
 mod threadfunc;
@@ -40,6 +41,7 @@ extern crate log;
 // The only exportable functionality we expose to any main function
 pub use crate::{
     cli::{parse_cli, Arguments, HashMode},
+    filesigner::{gen_keypair, sign_file, verify_file},
     hasher::Hasher,
     threadfunc::hash_single_file,
 };

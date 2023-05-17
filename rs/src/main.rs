@@ -1,5 +1,5 @@
 /*
-    DISKHASHER v0.3 - 2023 by Hyohko
+    DISKHASHER - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -29,7 +29,7 @@ extern crate pretty_env_logger;
 extern crate log;
 
 use {
-    dkhash::{hash_single_file, parse_cli, HashMode, Hasher},
+    dkhash::{gen_keypair, hash_single_file, parse_cli, sign_file, verify_file, HashMode, Hasher},
     log::LevelFilter,
 };
 
@@ -73,6 +73,33 @@ fn main() {
         }
         HashMode::SingleFile => {
             if let Err(err) = hash_single_file(&args.path_string, args.algorithm) {
+                error!("[!] Runtime: {err}");
+                return;
+            }
+        }
+        HashMode::SignFile => {
+            match sign_file(
+                args.path_string,
+                args.keyfile.unwrap(),
+                None, //TODO - allow comments
+                None,
+            ) {
+                Ok(()) => info!("[+] File signed successfully"),
+                Err(err) => {
+                    error!("[!] Failed to sign file");
+                    error!("[!] Runtime: {err}")
+                }
+            }
+        }
+        HashMode::VerifyFile => match verify_file(args.path_string, args.keyfile.unwrap()) {
+            Ok(()) => info!("[+] Signature is valid"),
+            Err(err) => {
+                error!("[!] Signature failed to validate");
+                error!("[!] Runtime: {err}")
+            }
+        },
+        HashMode::GenKeyPair => {
+            if let Err(err) = gen_keypair(&args.prefix, None) {
                 error!("[!] Runtime: {err}");
                 return;
             }

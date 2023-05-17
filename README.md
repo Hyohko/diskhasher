@@ -46,9 +46,13 @@ details
 Usage: dkhash <COMMAND>
 
 Commands:
-  dir   Recursively hash a single directory
-  file  Compute the cryptographic checksum of a single file
-  help  Print this message or the help of the given subcommand(s)
+  dir     Recursively hash a single directory
+  file    Compute the cryptographic checksum of a single file
+  sign    Compute the Ed22519 digital signature of a single file
+  verify  Validate the cryptographic checksum of a single file
+  genkey  Generate a new Ed22519 Public/Private keypair for signing and
+              validating files
+  help    Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help     Print help
@@ -230,6 +234,139 @@ Options:
           - sha3-256: SHA3-256
           - sha3-384: SHA3-384
           - sha3-512: SHA3-512
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+```
+
+## Digitally sign a file
+
+```
+$ ./dkhash sign -h
+Compute the Ed22519 digital signature of a single file
+
+Usage: dkhash sign --private-key <private_key> <filepath>
+
+Arguments:
+  <filepath>  Path to the file to be signed (see --help for details)
+
+Options:
+  -k, --private-key <private_key>  Path to encrypted private key
+  -h, --help                       Print help (see more with '--help')
+  -V, --version                    Print version
+```
+
+```
+$ ./dkhash sign --help
+Compute the Ed22519 digital signature of a single file
+
+Usage: dkhash sign --private-key <private_key> <filepath>
+
+Arguments:
+  <filepath>
+          After generating a hashfile, use this command to apply an Ed22519
+          Digital Signature to the file. If no pre-existing public/private
+          keypair exist, you must create one using the 'genkey' command. 
+          
+          FILE EXTENSION EXAMPLE: 
+          
+          If the file you are signing is at '/path/to/hashfile.txt', then your
+          signature file will be have the key identifier number appended to it.
+          If your key id is '942505F94A549326' and you are signing
+          '/path/to/hashfile.txt', the signature file will be at
+          '/path/to/hashfile.txt.942505F94A549326'
+
+Options:
+  -k, --private-key <private_key>
+          Path to an Ed22519 Private Key File, in the MiniSign format. You will
+          be prompted to enter the password to decrypt this file.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+```
+
+## Validate the digital signature of a file
+
+```
+$ ./dkhash verify -h
+Verify the digital signature of a file
+
+Usage: dkhash verify --public-key <public_key> <filepath>
+
+Arguments:
+  <filepath>  Path to the file being verified (see --help for details)
+
+Options:
+  -k, --public-key <public_key>  Path to public key
+  -h, --help                     Print help (see more with '--help')
+  -V, --version                  Print version
+```
+
+```
+$ ./dkhash verify --help
+Verify the digital signature of a file
+
+Usage: dkhash verify --public-key <public_key> <filepath>
+
+Arguments:
+  <filepath>
+          The signature of a file is stored in a separate file which must be
+          kept in the same directory as the original file. The signature file
+          must end with a hexadecimal extension matching the key identifier of
+          the corresponding public key. 
+          
+          For example, if the file being validated is at '/path/to/hashfile.txt'
+          and the key id of the public key is '942505F94A549326', then the
+          signature file must be at '/path/to/hashfile.txt.942505F94A549326'
+
+Options:
+  -k, --public-key <public_key>
+          Path to an Ed22519 Public Key File, in the MiniSign format.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+```
+
+## Generate a new Ed22519 Private/Public keypair for signing
+
+```
+$ ./dkhash genkey -h
+Generate a new Ed22519 Public/Private keypair for signing and validating files
+
+Usage: dkhash genkey --prefix <prefix>
+
+Options:
+  -p, --prefix <prefix>  Prefix for new keypair (see --help for details)
+  -h, --help             Print help (see more with '--help')
+  -V, --version          Print version
+```
+
+```
+$ ./dkhash genkey --help
+Generate a new Ed22519 Public/Private keypair for signing and validating files
+
+Usage: dkhash genkey --prefix <prefix>
+
+Options:
+  -p, --prefix <prefix>
+          Generate a new public/private Ed22519 keypair using this prefix to
+          create the filenames. E.g. if the prefix is 'mykey', the public key
+          will be created at './mykey.pub' and the corresponding private key
+          will be created at './mykey.key'. You will be prompted to enter a
+          password to secure the private key.
+
+          Note that in order to generate a new keypair with the same prefix, you
+          have to explicitly delete or rename the old keypair before 'genkey'
+          will allow you to create a new one.
 
   -h, --help
           Print help (see a summary with '-h')

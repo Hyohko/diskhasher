@@ -39,3 +39,8 @@ target/
 
 # test artifacts
 rs/exists.txt
+
+# signature artifacts
+*.minisig
+*.pub
+*.key
