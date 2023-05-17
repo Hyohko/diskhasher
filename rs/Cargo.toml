@@ -29,7 +29,9 @@ name = "dkhash"
 description = """Recursive directory file hasher - \
 computes cryptographic checksums for every \
 file in a directory. Supports a variety of hash algorithms, \
-see --help for details"""
+also has functionality for digitally signing hash files and \
+validating digital signatures using Ed22519 for greater \
+confidence in file integrity."""
 authors = ["Hyohko"]
 version = "0.5.0"
 edition = "2021"
