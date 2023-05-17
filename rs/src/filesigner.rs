@@ -25,6 +25,7 @@
 */
 use {
     crate::{error::HasherError, util::add_extension},
+    cpu_endian, hex,
     minisign::{KeyPair, PublicKey, SecretKey, SignatureBox},
     std::{
         fs::{canonicalize, File},
@@ -43,36 +44,27 @@ pub fn gen_keypair(prefix: &str, comment: Option<String>) -> Result<(), HasherEr
         comment.as_deref(),
         None, // always prompt
     )
-    .expect("Key generation is infalliable, but we have an error for some reason");
+    .expect("Key generation is supposed to be infalliable, but we have an error for some reason");
     Ok(())
 }
 
-fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherError> {
-    let mut sigfile: PathBuf = hashfile.clone();
-    add_extension(&mut sigfile, "minisig");
-    info!(
-        "Loading signature file\n\t=> {}",
-        sigfile.display().to_string()
-    );
-    let signature_box = SignatureBox::from_file(&sigfile)?;
-    let verified = minisign::verify(
-        pk,
-        &signature_box,
-        File::open(hashfile)?,
-        true,
-        false,
-        false,
-    );
-    match verified {
-        Ok(()) => info!("[+] Signature is valid"),
-        Err(_) => error!("[!] Signature failed to validate"),
+/// Hexencode a public key's keynum, correcting for endianness -
+/// output will be in Big Endian
+fn keynum_to_string(pk: &PublicKey) -> String {
+    let outstr = match cpu_endian::working() {
+        cpu_endian::Endian::Little => {
+            let mut out = pk.keynum().to_vec();
+            out.reverse();
+            hex::encode(out)
+        }
+        cpu_endian::Endian::Big => hex::encode(pk.keynum()),
+        _ => panic!("If it's not BigEndian or LittleEndian, you're out of luck"),
     };
-    Ok(())
+    outstr.to_uppercase()
 }
 
 pub fn sign_file(
     hashfile_path: String,
-    public_key: String,
     private_key: String,
     trusted_comment: Option<String>,
     untrusted_comment: Option<String>,
@@ -85,13 +77,14 @@ pub fn sign_file(
         });
     }
 
-    info!("Loading public key file => {public_key}");
-    let pk: PublicKey = PublicKey::from_file(public_key)?;
-    info!("Loading private key file => {private_key}");
+    let pk: PublicKey;
     let sigbox: SignatureBox;
     {
         // scope to drop SecretKey as soon as it is no longer needed
+        info!("Loading private key file => {private_key}");
         let sk: SecretKey = SecretKey::from_file(private_key, None)?;
+        info!("Deriving public key from private key");
+        pk = PublicKey::from_secret_key(&sk)?;
         sigbox = minisign::sign(
             None,
             &sk,
@@ -103,12 +96,30 @@ pub fn sign_file(
 
     // Write signature to file
     let mut sigfile: PathBuf = hashfile.clone();
-    add_extension(&mut sigfile, "minisig");
+    add_extension(&mut sigfile, keynum_to_string(&pk));
     info!("Writing signature file\n\t==> {:?}", sigfile);
     File::create(sigfile)?.write_all(sigbox.into_string().as_bytes())?;
 
     // Check signature to make sure nothing went sideways
     validate_signature(&pk, &hashfile)
+}
+
+fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherError> {
+    let mut sigfile: PathBuf = hashfile.clone();
+    add_extension(&mut sigfile, keynum_to_string(&pk));
+    info!(
+        "Loading signature file\n\t=> {}",
+        sigfile.display().to_string()
+    );
+    let signature_box = SignatureBox::from_file(&sigfile)?;
+    Ok(minisign::verify(
+        pk,
+        &signature_box,
+        File::open(hashfile)?,
+        true,
+        false,
+        false,
+    )?)
 }
 
 pub fn verify_file(hashfile_path: String, public_key: String) -> Result<(), HasherError> {

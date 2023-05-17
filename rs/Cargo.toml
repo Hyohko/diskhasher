@@ -49,6 +49,7 @@ opt-level = 3 # "s" binary size, omit for speed
 [dependencies]
 aligned_box = "0.2.1"
 clap = { version = "4.2", features = ["cargo", "wrap_help"] }
+cpu-endian = "0.1.1"
 custom_error = "1.9"
 digest = "0.10.6"
 hex = "0.4.3"

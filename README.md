@@ -248,39 +248,41 @@ Options:
 $ ./dkhash sign -h
 Compute the Ed22519 digital signature of a single file
 
-Usage: dkhash sign --pub <public_key> --priv <private_key> <filepath>
+Usage: dkhash sign --private-key <private_key> <filepath>
 
 Arguments:
   <filepath>  Path to the file to be signed (see --help for details)
 
 Options:
-      --pub <public_key>    Path to public key
-      --priv <private_key>  Path to encrypted private key
-  -h, --help                Print help (see more with '--help')
-  -V, --version             Print version
+  -k, --private-key <private_key>  Path to encrypted private key
+  -h, --help                       Print help (see more with '--help')
+  -V, --version                    Print version
 ```
 
 ```
 $ ./dkhash sign --help
 Compute the Ed22519 digital signature of a single file
 
-Usage: dkhash sign --pub <public_key> --priv <private_key> <filepath>
+Usage: dkhash sign --private-key <private_key> <filepath>
 
 Arguments:
   <filepath>
           After generating a hashfile, use this command to apply an Ed22519
           Digital Signature to the file. If no pre-existing public/private
-          keypair exist, you must create one using the 'genkey' command. If the
-          file you are signing is at '/path/to/hashfile.txt', for example, then
-          your signature file will be written to '/path/to/hashfile.txt.minisig'
+          keypair exist, you must create one using the 'genkey' command. 
+          
+          FILE EXTENSION EXAMPLE: 
+          
+          If the file you are signing is at '/path/to/hashfile.txt', then your
+          signature file will be have the key identifier number appended to it.
+          If your key id is '942505F94A549326' and you are signing
+          '/path/to/hashfile.txt', the signature file will be at
+          '/path/to/hashfile.txt.942505F94A549326'
 
 Options:
-      --pub <public_key>
-          Path to an Ed22519 Public Key File, in the MiniSign format.
-
-      --priv <private_key>
+  -k, --private-key <private_key>
           Path to an Ed22519 Private Key File, in the MiniSign format. You will
-          be prompted to enter the password to decrypt this file if it exists.
+          be prompted to enter the password to decrypt this file.
 
   -h, --help
           Print help (see a summary with '-h')
@@ -293,34 +295,38 @@ Options:
 
 ```
 $ ./dkhash verify -h
-Validate the digital signature of a file
+Verify the digital signature of a file
 
-Usage: dkhash verify --pub <public_key> <filepath>
+Usage: dkhash verify --public-key <public_key> <filepath>
 
 Arguments:
   <filepath>  Path to the file being verified (see --help for details)
 
 Options:
-      --pub <public_key>  Path to public key
-  -h, --help              Print help (see more with '--help')
-  -V, --version           Print version
+  -k, --public-key <public_key>  Path to public key
+  -h, --help                     Print help (see more with '--help')
+  -V, --version                  Print version
 ```
 
 ```
 $ ./dkhash verify --help
-Validate the digital signature of a file
+Verify the digital signature of a file
 
-Usage: dkhash verify --pub <public_key> <filepath>
+Usage: dkhash verify --public-key <public_key> <filepath>
 
 Arguments:
   <filepath>
-          The signature of a file is stored in a separate file in the same
-          directory with the extension '.minisig' - for example, if the file
-          being validated was at '/path/to/hashfile.txt', then the signature
-          file must be at '/path/to/hashfile.txt.minisig'
+          The signature of a file is stored in a separate file which must be
+          kept in the same directory as the original file. The signature file
+          must end with a hexadecimal extension matching the key identifier of
+          the corresponding public key. 
+          
+          For example, if the file being validated is at '/path/to/hashfile.txt'
+          and the key id of the public key is '942505F94A549326', then the
+          signature file must be at '/path/to/hashfile.txt.942505F94A549326'
 
 Options:
-      --pub <public_key>
+  -k, --public-key <public_key>
           Path to an Ed22519 Public Key File, in the MiniSign format.
 
   -h, --help

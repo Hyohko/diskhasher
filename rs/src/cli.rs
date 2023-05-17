@@ -51,8 +51,7 @@ pub struct Arguments {
     pub jobs: Option<u64>,
     pub generate_hashfile: Option<String>,
     pub mode: HashMode,
-    pub public_key: Option<String>,
-    pub private_key: Option<String>,
+    pub keyfile: Option<String>,
     pub prefix: String,
 }
 
@@ -77,8 +76,7 @@ impl FromArgMatches for Arguments {
                 jobs: matches.get_one::<u64>("jobs").copied(),
                 generate_hashfile: matches.get_one::<String>("generate_hashfile").cloned(),
                 mode: HashMode::RecursiveDir,
-                public_key: None,
-                private_key: None,
+                keyfile: None,
                 prefix: "".to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("file") {
@@ -93,8 +91,7 @@ impl FromArgMatches for Arguments {
                 jobs: None,
                 generate_hashfile: None,
                 mode: HashMode::SingleFile,
-                public_key: None,
-                private_key: None,
+                keyfile: None,
                 prefix: "".to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("sign") {
@@ -109,8 +106,7 @@ impl FromArgMatches for Arguments {
                 jobs: None,
                 generate_hashfile: None,
                 mode: HashMode::SignFile,
-                public_key: matches.get_one::<String>("public_key").cloned(),
-                private_key: matches.get_one::<String>("private_key").cloned(),
+                keyfile: matches.get_one::<String>("private_key").cloned(),
                 prefix: "".to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("verify") {
@@ -125,8 +121,7 @@ impl FromArgMatches for Arguments {
                 jobs: None,
                 generate_hashfile: None,
                 mode: HashMode::VerifyFile,
-                public_key: matches.get_one::<String>("public_key").cloned(),
-                private_key: None,
+                keyfile: matches.get_one::<String>("public_key").cloned(),
                 prefix: "".to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("genkey") {
@@ -141,8 +136,7 @@ impl FromArgMatches for Arguments {
                 jobs: None,
                 generate_hashfile: None,
                 mode: HashMode::GenKeyPair,
-                public_key: None,
-                private_key: None,
+                keyfile: None,
                 prefix: matches.get_one::<String>("prefix").unwrap().to_string(),
             })
         } else {
@@ -174,12 +168,11 @@ impl FromArgMatches for Arguments {
             Ok(())
         } else if let Some(matches) = matches.subcommand_matches("sign") {
             self.path_string = matches.get_one::<String>("filepath").unwrap().to_string();
-            self.public_key = matches.get_one::<String>("public_key").cloned();
-            self.private_key = matches.get_one::<String>("private_key").cloned();
+            self.keyfile = matches.get_one::<String>("public_key").cloned();
             Ok(())
         } else if let Some(matches) = matches.subcommand_matches("verify") {
             self.path_string = matches.get_one::<String>("filepath").unwrap().to_string();
-            self.public_key = matches.get_one::<String>("public_key").cloned();
+            self.keyfile = matches.get_one::<String>("private_key").cloned();
             Ok(())
         } else if let Some(matches) = matches.subcommand_matches("genkey") {
             self.prefix = matches.get_one::<String>("prefix").unwrap().to_string();
@@ -342,45 +335,48 @@ fn sign_subcommand() -> Command {
                     "After generating a hashfile, use this command to \
                     apply an Ed22519 Digital Signature to the file. If no pre-existing \
                     public/private keypair exist, you must create one using the 'genkey' \
-                    command. If the file you are signing is at '/path/to/hashfile.txt', for \
-                    example, then your signature file will be written to '/path/to/hashfile.txt.minisig'",
+                    command. \n\n\
+                    FILE EXTENSION EXAMPLE: \n\n\
+                    If the file you are signing is at '/path/to/hashfile.txt', \
+                    then your signature file will be have the key identifier number \
+                    appended to it. If your key id is '942505F94A549326' and you \
+                    are signing '/path/to/hashfile.txt', the signature file will be at \
+                    '/path/to/hashfile.txt.942505F94A549326'",
                 ),
         )
         .arg(
-            Arg::new("public_key")
-                .long("pub")
-                .required(true)
-                .help("Path to public key")
-                .long_help("Path to an Ed22519 Public Key File, in the MiniSign format."),
-        )
-        .arg(
             Arg::new("private_key")
-                .long("priv")
+                .short('k')
+                .long("private-key")
                 .required(true)
                 .help("Path to encrypted private key")
                 .long_help(
                     "Path to an Ed22519 Private Key File, in the MiniSign format. \
-                You will be prompted to enter the password to decrypt this file if it exists.",
+                    You will be prompted to enter the password to decrypt this file.",
                 ),
         )
 }
 
 fn verify_subcommand() -> Command {
     Command::new("verify")
-        .about("Validate the digital signature of a file")
+        .about("Verify the digital signature of a file")
         .arg(
             Arg::new("filepath")
                 .required(true)
                 .help("Path to the file being verified (see --help for details)")
                 .long_help(
-                    "The signature of a file is stored in a separate file in the same directory with \
-                    the extension '.minisig' - for example, if the file being validated was at \
-                    '/path/to/hashfile.txt', then the signature file must be at '/path/to/hashfile.txt.minisig'",
+                    "The signature of a file is stored in a separate file which must be kept in the \
+                    same directory as the original file. The signature file must end with \
+                    a hexadecimal extension matching the key identifier of the corresponding \
+                    public key. \n\nFor example, if the file being validated is at '/path/to/hashfile.txt' \
+                    and the key id of the public key is '942505F94A549326', then the signature file \
+                    must be at '/path/to/hashfile.txt.942505F94A549326'",
                 ),
         )
         .arg(
             Arg::new("public_key")
-                .long("pub")
+                .short('k')
+                .long("public-key")
                 .required(true)
                 .help("Path to public key")
                 .long_help("Path to an Ed22519 Public Key File, in the MiniSign format."),

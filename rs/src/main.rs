@@ -80,8 +80,7 @@ fn main() {
         HashMode::SignFile => {
             if let Err(err) = sign_file(
                 args.path_string,
-                args.public_key.unwrap(),
-                args.private_key.unwrap(),
+                args.keyfile.unwrap(),
                 None, //TODO - allow comments
                 None,
             ) {
@@ -89,12 +88,13 @@ fn main() {
                 return;
             }
         }
-        HashMode::VerifyFile => {
-            if let Err(err) = verify_file(args.path_string, args.public_key.unwrap()) {
-                error!("[!] Runtime: {err}");
-                return;
+        HashMode::VerifyFile => match verify_file(args.path_string, args.keyfile.unwrap()) {
+            Ok(()) => info!("[+] Signature is valid"),
+            Err(err) => {
+                error!("[!] Signature failed to validate");
+                error!("[!] Runtime: {err}")
             }
-        }
+        },
         HashMode::GenKeyPair => {
             if let Err(err) = gen_keypair(&args.prefix, None) {
                 error!("[!] Runtime: {err}");
