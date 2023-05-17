@@ -38,7 +38,7 @@ edition = "2021"
 license = "GPLv3"
 repository = "https://github.com/Hyohko/diskhasher"
 readme = "../README.md"
-keywords = ["md5", "sha1", "sha2", "sha3", "cli"]
+keywords = ["md5", "sha1", "sha2", "sha3", "cli", "ed22519", "hashing", "crypto"]
 categories = ["file-integrity","command-line","system-utility"]
 
 [profile.release]
