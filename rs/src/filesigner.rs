@@ -122,10 +122,9 @@ fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherEr
         "Loading signature file\n\t=> {}",
         sigfile.display().to_string()
     );
-    let signature_box = SignatureBox::from_file(&sigfile)?;
     Ok(minisign::verify(
         pk,
-        &signature_box,
+        &SignatureBox::from_file(&sigfile)?,
         File::open(hashfile)?,
         true,
         false,
