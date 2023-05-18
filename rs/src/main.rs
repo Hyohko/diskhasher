@@ -50,6 +50,29 @@ fn main() {
         }
     };
 
+    #[cfg(target_os = "windows")]
+    {
+        // This is an odd Windows/Clap quirk - if the path we are hashing contains
+        // a space, Windows has to encapsulate the path in a quoted string.
+        // Sometimes when tab-completing paths, Windows will insert a terminal backslash
+        // before the end quote mark. This confuses Clap's parser, which - if the path
+        // terminates in a backslash - will insert a double-quote ('"') at the
+        // end of the string [but not at the front.... :( ], which we must then
+        // handle or else fs::Path will consume it and return OS Error 123
+        // (Volume or Label Syntax Not Correct)
+        // Here, we inform the user and quit immediately.
+        // TODO - either tell Clap or fix it ourselves, but for now yell at the user
+        // and make them fix it.
+        if args.path_string.chars().nth(args.path_string.len() - 1) == Some('"') {
+            error!("[*] Remove the terminal '\\' from the path");
+            error!(
+                "[!] Re-run with path ==>\n\t'{}'",
+                &args.path_string[..args.path_string.len() - 1]
+            );
+            return;
+        }
+    }
+
     match args.mode {
         HashMode::RecursiveDir => {
             let mut myhasher = match Hasher::new(
@@ -87,7 +110,8 @@ fn main() {
                 Ok(()) => info!("[+] File signed successfully"),
                 Err(err) => {
                     error!("[!] Failed to sign file");
-                    error!("[!] Runtime: {err}")
+                    error!("[!] Runtime: {err}");
+                    return;
                 }
             }
         }
@@ -95,7 +119,8 @@ fn main() {
             Ok(()) => info!("[+] Signature is valid"),
             Err(err) => {
                 error!("[!] Signature failed to validate");
-                error!("[!] Runtime: {err}")
+                error!("[!] Runtime: {err}");
+                return;
             }
         },
         HashMode::GenKeyPair => {
