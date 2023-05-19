@@ -24,7 +24,10 @@
     <https://www.gnu.org/licenses/>.
 */
 use {
-    crate::{error::HasherError, util::add_extension},
+    crate::{
+        error::HasherError,
+        util::{add_extension, current_timestamp_as_string},
+    },
     cpu_endian::{working, Endian},
     minisign::{KeyPair, PublicKey, SecretKey, SignatureBox},
     std::{
@@ -36,7 +39,7 @@ use {
 
 /// Generate a MiniSign Ed22519 Public/Private keypair and save them to disk
 /// using the prefix argument to name the files.
-pub fn gen_keypair(prefix: &str, comment: Option<String>) -> Result<(), HasherError> {
+pub fn gen_keypair(prefix: &str) -> Result<(), HasherError> {
     let paths = [format!("./{prefix}.pub"), format!("./{prefix}.key")];
     for st in paths.iter() {
         if Path::new(&st).exists() {
@@ -50,6 +53,11 @@ pub fn gen_keypair(prefix: &str, comment: Option<String>) -> Result<(), HasherEr
         "Writing keys to disk:\n\tPublic key => {}\n\tPrivate key => {}",
         paths[0], paths[1]
     );
+
+    let comment = Some(format!(
+        "DKHASH Keyfile Created => {}",
+        current_timestamp_as_string()
+    ));
     KeyPair::generate_and_write_encrypted_keypair(
         File::create(&paths[0])?,
         File::create(&paths[1])?,
@@ -80,12 +88,7 @@ fn keynum_to_string(pk: &PublicKey) -> String {
 /// but will have the public key's ID number appended as an extension.
 /// todo! Add support for trusted and untrusted comments to attach
 /// to the signature file.
-pub fn sign_file(
-    hashfile_path: String,
-    private_key: String,
-    trusted_comment: Option<String>,
-    untrusted_comment: Option<String>,
-) -> Result<(), HasherError> {
+pub fn sign_file(hashfile_path: String, private_key: String) -> Result<(), HasherError> {
     info!("[+] Creating digital signature for {hashfile_path}");
     let hashfile = canonicalize(Path::new(&hashfile_path))?;
     if !hashfile.is_file() {
@@ -103,6 +106,12 @@ pub fn sign_file(
         let sk: SecretKey = SecretKey::from_file(private_key, None)?;
         info!("Deriving public key from private key");
         pk = PublicKey::from_secret_key(&sk)?;
+        let untrusted_comment = Some(format!("Signed by DKHASH"));
+        let trusted_comment = Some(format!(
+            "Key ID => {} ||| Signature Time/Date => {}",
+            keynum_to_string(&pk),
+            current_timestamp_as_string()
+        ));
         sigbox = minisign::sign(
             None,
             &sk,

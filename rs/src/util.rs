@@ -26,10 +26,12 @@
 
 use {
     crate::error::HasherError,
+    chrono::{DateTime, Utc},
     regex::Regex,
     std::{
         fs::canonicalize,
         path::{Path, PathBuf},
+        time::SystemTime,
     },
 };
 
@@ -67,6 +69,12 @@ pub(crate) fn canonicalize_filepath(
             path: file_path_buf.display().to_string(),
         })
     }
+}
+
+pub(crate) fn current_timestamp_as_string() -> String {
+    let now = SystemTime::now();
+    let now: DateTime<Utc> = now.into();
+    now.to_rfc3339()
 }
 
 /// Validates that at least the file name portion of a file path matches
