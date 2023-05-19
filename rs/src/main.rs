@@ -103,7 +103,7 @@ fn main() {
         HashMode::SignFile => {
             match sign_file(
                 args.path_string,
-                args.keyfile.unwrap(),
+                args.keyfile,
                 None, //TODO - allow comments
                 None,
             ) {
@@ -115,7 +115,7 @@ fn main() {
                 }
             }
         }
-        HashMode::VerifyFile => match verify_file(args.path_string, args.keyfile.unwrap()) {
+        HashMode::VerifyFile => match verify_file(args.path_string, args.keyfile) {
             Ok(()) => info!("[+] Signature is valid"),
             Err(err) => {
                 error!("[!] Signature failed to validate");
@@ -124,7 +124,7 @@ fn main() {
             }
         },
         HashMode::GenKeyPair => {
-            if let Err(err) = gen_keypair(&args.prefix, None) {
+            if let Err(err) = gen_keypair(&args.keyfile, None) {
                 error!("[!] Runtime: {err}");
                 return;
             }

@@ -31,28 +31,52 @@ use clap::{
     value_parser, Arg, ArgAction, ArgMatches, Command, FromArgMatches,
 };
 
+/// Various modes of operation for DKHASH - hash whole directories,
+/// single files, sign/verify hashfiles, and generate Ed22519 keypairs
 pub enum HashMode {
+    /// Recursively hash every file in a directory and all subdirectories
     RecursiveDir,
+    /// Compute the hash of a single file
     SingleFile,
+    /// Digitally sign a file with Ed22519
     SignFile,
+    /// Verify the Ed22519 digital signature
     VerifyFile,
+    /// Generate an Ed22519 keypair
     GenKeyPair,
+    /// None/default option
     NoneSelected,
 }
 
 pub struct Arguments {
+    /// Path to file/directory we are processing. Used for directories
+    /// being hashed, single files being hashed, or public/private keys
+    /// used during signing/validation
     pub path_string: String,
+    /// Hash algorithm used
     pub algorithm: HashAlg,
+    /// Regex pattern used to identify hashfiles that will be parsed
+    /// during directory hashing
     pub pattern: Option<String>,
+    /// Force the hashing of a directory even if no hashfile is found
     pub force: bool,
+    /// Print all the user-visible debug statements
     pub verbose: bool,
+    /// The sorting order when hashing a directory
     pub sorting: FileSortLogic,
+    /// Path for storing the results of a hashing run
     pub logfile: Option<String>,
+    /// Number of concurrent threads that will operate simultaneously
     pub jobs: Option<u64>,
+    /// Path to a hashfile that mimics the output of 'md5sum', used
+    /// to store (on disk) the results of a hashing run when sending
+    /// to someone else.
     pub generate_hashfile: Option<String>,
+    /// DKHASH operation mode (dir/file/sign/verify/genkey)
     pub mode: HashMode,
-    pub keyfile: Option<String>,
-    pub prefix: String,
+    /// Path to the public or private key being used in signing/verifying.
+    /// Also stores the prefix for 'genkey'
+    pub keyfile: String,
 }
 
 impl FromArgMatches for Arguments {
@@ -76,8 +100,7 @@ impl FromArgMatches for Arguments {
                 jobs: matches.get_one::<u64>("jobs").copied(),
                 generate_hashfile: matches.get_one::<String>("generate_hashfile").cloned(),
                 mode: HashMode::RecursiveDir,
-                keyfile: None,
-                prefix: "".to_string(),
+                keyfile: "".to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("file") {
             Ok(Self {
@@ -91,8 +114,7 @@ impl FromArgMatches for Arguments {
                 jobs: None,
                 generate_hashfile: None,
                 mode: HashMode::SingleFile,
-                keyfile: None,
-                prefix: "".to_string(),
+                keyfile: "".to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("sign") {
             Ok(Self {
@@ -106,8 +128,10 @@ impl FromArgMatches for Arguments {
                 jobs: None,
                 generate_hashfile: None,
                 mode: HashMode::SignFile,
-                keyfile: matches.get_one::<String>("private_key").cloned(),
-                prefix: "".to_string(),
+                keyfile: matches
+                    .get_one::<String>("private_key")
+                    .unwrap()
+                    .to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("verify") {
             Ok(Self {
@@ -121,8 +145,7 @@ impl FromArgMatches for Arguments {
                 jobs: None,
                 generate_hashfile: None,
                 mode: HashMode::VerifyFile,
-                keyfile: matches.get_one::<String>("public_key").cloned(),
-                prefix: "".to_string(),
+                keyfile: matches.get_one::<String>("public_key").unwrap().to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("genkey") {
             Ok(Self {
@@ -136,8 +159,7 @@ impl FromArgMatches for Arguments {
                 jobs: None,
                 generate_hashfile: None,
                 mode: HashMode::GenKeyPair,
-                keyfile: None,
-                prefix: matches.get_one::<String>("prefix").unwrap().to_string(),
+                keyfile: matches.get_one::<String>("prefix").unwrap().to_string(),
             })
         } else {
             Err(Error::new(ErrorKind::UnknownArgument))
@@ -168,14 +190,17 @@ impl FromArgMatches for Arguments {
             Ok(())
         } else if let Some(matches) = matches.subcommand_matches("sign") {
             self.path_string = matches.get_one::<String>("filepath").unwrap().to_string();
-            self.keyfile = matches.get_one::<String>("public_key").cloned();
+            self.keyfile = matches.get_one::<String>("public_key").unwrap().to_string();
             Ok(())
         } else if let Some(matches) = matches.subcommand_matches("verify") {
             self.path_string = matches.get_one::<String>("filepath").unwrap().to_string();
-            self.keyfile = matches.get_one::<String>("private_key").cloned();
+            self.keyfile = matches
+                .get_one::<String>("private_key")
+                .unwrap()
+                .to_string();
             Ok(())
         } else if let Some(matches) = matches.subcommand_matches("genkey") {
-            self.prefix = matches.get_one::<String>("prefix").unwrap().to_string();
+            self.keyfile = matches.get_one::<String>("prefix").unwrap().to_string();
             Ok(())
         } else {
             Err(Error::new(ErrorKind::UnknownArgument))
