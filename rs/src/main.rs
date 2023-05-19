@@ -129,10 +129,6 @@ fn main() {
                 return;
             }
         }
-        _ => {
-            error!("Must select subcommand (should be handled by parser, but for completeness...)");
-            return;
-        }
     }
     info!("[+] Done");
 }

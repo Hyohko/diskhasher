@@ -149,3 +149,18 @@ impl std::str::FromStr for FileSortLogic {
         Err(format!("invalid sorting option: {s}"))
     }
 }
+
+/// Various modes of operation for DKHASH - hash whole directories,
+/// single files, sign/verify hashfiles, and generate Ed22519 keypairs
+pub enum HashMode {
+    /// Recursively hash every file in a directory and all subdirectories
+    RecursiveDir,
+    /// Compute the hash of a single file
+    SingleFile,
+    /// Digitally sign a file with Ed22519
+    SignFile,
+    /// Verify the Ed22519 digital signature
+    VerifyFile,
+    /// Generate an Ed22519 keypair
+    GenKeyPair,
+}

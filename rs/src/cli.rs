@@ -23,30 +23,13 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
-use crate::enums::{FileSortLogic, HashAlg};
+use crate::enums::{FileSortLogic, HashAlg, HashMode};
 
 use clap::{
     command,
     error::{Error, ErrorKind},
     value_parser, Arg, ArgAction, ArgMatches, Command, FromArgMatches,
 };
-
-/// Various modes of operation for DKHASH - hash whole directories,
-/// single files, sign/verify hashfiles, and generate Ed22519 keypairs
-pub enum HashMode {
-    /// Recursively hash every file in a directory and all subdirectories
-    RecursiveDir,
-    /// Compute the hash of a single file
-    SingleFile,
-    /// Digitally sign a file with Ed22519
-    SignFile,
-    /// Verify the Ed22519 digital signature
-    VerifyFile,
-    /// Generate an Ed22519 keypair
-    GenKeyPair,
-    /// None/default option
-    NoneSelected,
-}
 
 /// Structure for storing command line arguments as parsed by `clap`
 pub struct Arguments {
