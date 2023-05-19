@@ -36,6 +36,14 @@
     typenum::uint::{UInt, UTerm},
 };*/
 
+/*
+    hashobj_slow!() is retained for readability and sort-of corresponds to hashobj!() but
+    makes cargo clippy more mad. hashobj_slow!() is the original version and hashobj!() I generated
+    by taking the clippy lints and expanding them
+*/
+
+/// Create the default hashing object used per-thread for hashing a file
+#[doc(hidden)]
 #[macro_export]
 macro_rules! hashobj {
     ($alg:expr) => {
@@ -168,9 +176,8 @@ macro_rules! hashobj {
 // Note - cargo check / rustfmt is reformatting the SHA3 algorithm match branches above,
 // don't know why, doesn't seem syntactically correct, but whatever.
 
-// Clippy complains about this being less performant. Retain, but know that
-// the above macro is the expanded variant of this one - in case anyone wants
-// to dig into it
+/// A less performant but more readable macro to select the hash object from the chosen algorithm.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! hashobj_slow {
     ($alg:expr) => {
@@ -189,8 +196,10 @@ macro_rules! hashobj_slow {
     };
 }
 
-// The hashes of zero-length data are well known and never change - this avoids performance overhead
-// when reading zero-length files: no allocation of either the hash object or the buffer is required
+/// The hashes of zero-length data are well known and never change - this avoids performance overhead
+/// when reading zero-length files: no allocation of either the hash object or the buffer is required
+/// and the known hash is returned immediately.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! known_zero_hash {
     ($alg:expr) => {
@@ -209,7 +218,8 @@ macro_rules! known_zero_hash {
     };
 }
 
-// Given an Arc<Mutex<File>> and a String msg, write that string to the opened file
+/// Given an `Arc<Mutex<File>>` and a `String` msg, write that string to the opened file
+#[doc(hidden)]
 #[macro_export]
 macro_rules! filelog {
     ($msg:expr, $filehandleopt:expr) => {

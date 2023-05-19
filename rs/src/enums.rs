@@ -27,7 +27,7 @@
 use clap::{builder::PossibleValue, ValueEnum};
 
 /// Supported hash algorithms
-#[non_exhaustive]
+//#[non_exhaustive]
 #[derive(Clone, Copy, Debug)]
 pub enum HashAlg {
     MD5,

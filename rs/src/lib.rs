@@ -23,6 +23,11 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
+/*
+#![deny(missing_docs)]
+#![deny(rustdoc::missing_doc_code_examples)]
+*/
+
 mod cli;
 mod constants;
 mod enums;
@@ -47,7 +52,7 @@ pub use crate::{
 };
 
 ///////////////////////////////////////////////////////////////////////////////
-/// TESTS
+// TESTS
 ///////////////////////////////////////////////////////////////////////////////
 #[cfg(test)]
 mod test;

@@ -48,6 +48,7 @@ pub enum HashMode {
     NoneSelected,
 }
 
+/// Structure for storing command line arguments as parsed by `clap`
 pub struct Arguments {
     /// Path to file/directory we are processing. Used for directories
     /// being hashed, single files being hashed, or public/private keys
@@ -429,6 +430,7 @@ fn genkey_subcommand() -> Command {
         )
 }
 
+/// Parse the command line arguments and return an `Arguments` struct
 pub fn parse_cli() -> Result<Arguments, clap::error::Error> {
     let alg_arg = Arg::new("algorithm")
         .short('a')

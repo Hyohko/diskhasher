@@ -33,6 +33,8 @@ use {
     },
 };
 
+/// Stitch an extra extension on to the end of a path - add a leading dot before
+/// the new extension. E.g. add_extension("myfile.txt", "new") -> "myfile.txt.new"
 pub(crate) fn add_extension(path: &mut std::path::PathBuf, extension: impl AsRef<std::path::Path>) {
     match path.extension() {
         Some(ext) => {

@@ -34,6 +34,8 @@ use {
     },
 };
 
+/// Generate a MiniSign Ed22519 Public/Private keypair and save them to disk
+/// using the prefix argument to name the files.
 pub fn gen_keypair(prefix: &str, comment: Option<String>) -> Result<(), HasherError> {
     let paths = [format!("./{prefix}.pub"), format!("./{prefix}.key")];
     for st in paths.iter() {
@@ -73,6 +75,11 @@ fn keynum_to_string(pk: &PublicKey) -> String {
     outstr.to_uppercase()
 }
 
+/// Sign a hashfile using a private key in the MiniSign format.
+/// The signature file will be at the same path as the original file
+/// but will have the public key's ID number appended as an extension.
+/// todo! Add support for trusted and untrusted comments to attach
+/// to the signature file.
 pub fn sign_file(
     hashfile_path: String,
     private_key: String,
@@ -115,6 +122,8 @@ pub fn sign_file(
     validate_signature(&pk, &hashfile)
 }
 
+/// Internal function for validating a hashfile's corresponding
+/// signature file with a MiniSign public key
 fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherError> {
     let mut sigfile: PathBuf = hashfile.clone();
     add_extension(&mut sigfile, keynum_to_string(pk));
@@ -132,6 +141,9 @@ fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherEr
     )?)
 }
 
+/// Verify a hashfile using a public key in the MiniSign format.
+/// The signature file *must* be at the same path as the original file
+/// and must have the public key's ID number appended as an extension.
 pub fn verify_file(hashfile_path: String, public_key: String) -> Result<(), HasherError> {
     info!("[+] Validating digital signature of {hashfile_path}");
     let hashfile = canonicalize(Path::new(&hashfile_path))?;
