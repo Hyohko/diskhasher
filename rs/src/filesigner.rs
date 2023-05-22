@@ -106,7 +106,7 @@ pub fn sign_file(hashfile_path: String, private_key: String) -> Result<(), Hashe
         pk = PublicKey::from_secret_key(&sk)?;
         let untrusted_comment = Some(format!("Signed by DKHASH"));
         let trusted_comment = Some(format!(
-            "Key ID => {} ||| Signature Time/Date => {}",
+            "Key ID => {} ||| Signature Time/Date (UTC) => {}",
             keynum_to_string(&pk),
             current_timestamp_as_string()
         ));
@@ -142,7 +142,7 @@ fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherEr
         pk,
         &SignatureBox::from_file(&sigfile)?,
         File::open(hashfile)?,
-        true,
+        false,
         false,
         false,
     )?)
