@@ -68,7 +68,7 @@ macro_rules! opt_open_file {
 /// This is our primary object, and we can construct one for every
 /// root directory we want to inspect.
 #[derive(Debug, Clone)]
-pub struct Hasher {
+pub struct DirHasher {
     pool: ThreadPool,
     alg: HashAlg,
     root: PathBuf,
@@ -81,7 +81,7 @@ pub struct Hasher {
     genhash_handle: Option<Arc<Mutex<File>>>,
 }
 
-impl Hasher {
+impl DirHasher {
     /// Hasher constructor function - from the arguments, we take the algorithm,
     /// the root directory to compute hashes on, the pattern of (if any) hash files
     /// we need to parse, the (optional) path to our results log file, and the

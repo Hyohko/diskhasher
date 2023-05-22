@@ -29,7 +29,9 @@ extern crate pretty_env_logger;
 extern crate log;
 
 use {
-    dkhash::{gen_keypair, hash_single_file, parse_cli, sign_file, verify_file, HashMode, Hasher},
+    dkhash::{
+        gen_keypair, hash_single_file, parse_cli, sign_file, verify_file, DirHasher, HashMode,
+    },
     log::LevelFilter,
 };
 
@@ -52,7 +54,7 @@ fn main() {
 
     match cli {
         HashMode::RecursiveDir(args) => {
-            let mut myhasher = match Hasher::new(
+            let mut myhasher = match DirHasher::new(
                 args.algorithm,
                 &args.path_string,
                 args.pattern,
@@ -71,7 +73,7 @@ fn main() {
                 return;
             };
         }
-        HashMode::SingleFile(args) => {
+        HashMode::OneFile(args) => {
             if let Err(err) = hash_single_file(&args.path_string, args.algorithm) {
                 error!("[!] Runtime: {err}");
                 return;

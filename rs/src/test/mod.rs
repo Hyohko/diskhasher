@@ -202,11 +202,11 @@ mod splitline {
 
 mod implements_traits {
     use crate::enums::HashAlg;
-    use crate::hasher::Hasher;
+    use crate::hasher::DirHasher;
 
     #[test]
     fn debug_print() {
-        let hasher: Hasher = Hasher::new(
+        let hasher: DirHasher = DirHasher::new(
             HashAlg::MD5,
             &String::from("./").clone(),
             None,
@@ -220,8 +220,8 @@ mod implements_traits {
 
     #[test]
     fn can_clone() {
-        let hasher: Hasher =
-            Hasher::new(HashAlg::MD5, &String::from("./"), None, None, None, None).unwrap();
+        let hasher: DirHasher =
+            DirHasher::new(HashAlg::MD5, &String::from("./"), None, None, None, None).unwrap();
         let _myclone = hasher.clone();
     }
 }

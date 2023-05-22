@@ -37,7 +37,7 @@ pub enum HashMode {
     /// Recursively hash every file in a directory and all subdirectories
     RecursiveDir(Arguments),
     /// Compute the hash of a single file
-    SingleFile(Arguments),
+    OneFile(Arguments),
     /// Digitally sign a file with Ed22519
     SignFile(Arguments),
     /// Verify the Ed22519 digital signature
@@ -480,7 +480,7 @@ pub fn parse_cli() -> Result<HashMode, clap::error::Error> {
 
     match args.subcommand_name() {
         Some("dir") => Ok(HashMode::RecursiveDir(matches)),
-        Some("file") => Ok(HashMode::SingleFile(matches)),
+        Some("file") => Ok(HashMode::OneFile(matches)),
         Some("sign") => Ok(HashMode::SignFile(matches)),
         Some("verify") => Ok(HashMode::VerifyFile(matches)),
         Some("genkey") => Ok(HashMode::GenKeyPair(matches)),

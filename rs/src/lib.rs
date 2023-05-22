@@ -47,7 +47,7 @@ extern crate log;
 pub use crate::{
     cli::{parse_cli, Arguments, HashMode},
     filesigner::{gen_keypair, sign_file, verify_file},
-    hasher::Hasher,
+    hasher::DirHasher,
     threadfunc::hash_single_file,
 };
 
