@@ -33,7 +33,7 @@ also has functionality for digitally signing hash files and \
 validating digital signatures using Ed22519 for greater \
 confidence in file integrity."""
 authors = ["Hyohko"]
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 license = "GPLv3"
 repository = "https://github.com/Hyohko/diskhasher"

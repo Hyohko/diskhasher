@@ -104,7 +104,7 @@ pub fn sign_file(hashfile_path: String, private_key: String) -> Result<(), Hashe
         let sk: SecretKey = SecretKey::from_file(private_key, None)?;
         info!("Deriving public key from private key");
         pk = PublicKey::from_secret_key(&sk)?;
-        let untrusted_comment = Some(format!("Signed by DKHASH"));
+        let untrusted_comment = Some("Signed by DKHASH".to_string());
         let trusted_comment = Some(format!(
             "Key ID => {} ||| Signature Time/Date (UTC) => {}",
             keynum_to_string(&pk),
@@ -138,6 +138,8 @@ fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherEr
         "Loading signature file\n\t=> {}",
         sigfile.display().to_string()
     );
+
+    // This Ok(...?) construct coerces `PError` to `HasherError` using `From<PError>` trait
     Ok(minisign::verify(
         pk,
         &SignatureBox::from_file(&sigfile)?,

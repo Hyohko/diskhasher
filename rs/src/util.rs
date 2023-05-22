@@ -71,6 +71,9 @@ pub(crate) fn canonicalize_filepath(
     }
 }
 
+/// Retrieves the current system time and outputs it in RFC 3339 format,
+/// always as a UTC (+00:00 or Zulu) timestamp, to the nanosecond where possible
+/// e.g. %YYYY-%MM-%DDThh:mm:ss.sssssssss+00:00
 pub(crate) fn current_timestamp_as_string() -> String {
     let now = SystemTime::now();
     let now: DateTime<Utc> = now.into();
