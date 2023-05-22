@@ -45,8 +45,7 @@ extern crate log;
 
 // The only exportable functionality we expose to any main function
 pub use crate::{
-    cli::{parse_cli, Arguments},
-    enums::HashMode,
+    cli::{parse_cli, Arguments, HashMode},
     filesigner::{gen_keypair, sign_file, verify_file},
     hasher::Hasher,
     threadfunc::hash_single_file,

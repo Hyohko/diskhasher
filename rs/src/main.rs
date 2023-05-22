@@ -42,7 +42,7 @@ fn main() {
         .filter_level(LevelFilter::Info)
         .init();
 
-    let args = match parse_cli() {
+    let cli = match parse_cli() {
         Ok(v) => v,
         Err(err) => {
             error!("[!] Arguments: {err}");
@@ -50,31 +50,8 @@ fn main() {
         }
     };
 
-    #[cfg(target_os = "windows")]
-    {
-        // This is an odd Windows/Clap quirk - if the path we are hashing contains
-        // a space, Windows has to encapsulate the path in a quoted string.
-        // Sometimes when tab-completing paths, Windows will insert a terminal backslash
-        // before the end quote mark. This confuses Clap's parser, which - if the path
-        // terminates in a backslash - will insert a double-quote ('"') at the
-        // end of the string [but not at the front.... :( ], which we must then
-        // handle or else fs::Path will consume it and return OS Error 123
-        // (Volume or Label Syntax Not Correct)
-        // Here, we inform the user and quit immediately.
-        // TODO - either tell Clap or fix it ourselves, but for now yell at the user
-        // and make them fix it.
-        if args.path_string.chars().nth(args.path_string.len() - 1) == Some('"') {
-            error!("[*] Remove the terminal '\\' from the path");
-            error!(
-                "[!] Re-run with path ==>\n\t'{}'",
-                &args.path_string[..args.path_string.len() - 1]
-            );
-            return;
-        }
-    }
-
-    match args.mode {
-        HashMode::RecursiveDir => {
+    match cli {
+        HashMode::RecursiveDir(args) => {
             let mut myhasher = match Hasher::new(
                 args.algorithm,
                 &args.path_string,
@@ -94,13 +71,13 @@ fn main() {
                 return;
             };
         }
-        HashMode::SingleFile => {
+        HashMode::SingleFile(args) => {
             if let Err(err) = hash_single_file(&args.path_string, args.algorithm) {
                 error!("[!] Runtime: {err}");
                 return;
             }
         }
-        HashMode::SignFile => match sign_file(args.path_string, args.keyfile) {
+        HashMode::SignFile(args) => match sign_file(args.path_string, args.keyfile) {
             Ok(()) => info!("[+] File signed successfully"),
             Err(err) => {
                 error!("[!] Failed to sign file");
@@ -108,7 +85,7 @@ fn main() {
                 return;
             }
         },
-        HashMode::VerifyFile => match verify_file(args.path_string, args.keyfile) {
+        HashMode::VerifyFile(args) => match verify_file(args.path_string, args.keyfile) {
             Ok(()) => info!("[+] Signature is valid"),
             Err(err) => {
                 error!("[!] Signature failed to validate");
@@ -116,7 +93,7 @@ fn main() {
                 return;
             }
         },
-        HashMode::GenKeyPair => {
+        HashMode::GenKeyPair(args) => {
             if let Err(err) = gen_keypair(&args.keyfile) {
                 error!("[!] Runtime: {err}");
                 return;

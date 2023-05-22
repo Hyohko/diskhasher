@@ -23,13 +23,28 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
-use crate::enums::{FileSortLogic, HashAlg, HashMode};
+use crate::enums::{FileSortLogic, HashAlg};
 
 use clap::{
     command,
     error::{Error, ErrorKind},
     value_parser, Arg, ArgAction, ArgMatches, Command, FromArgMatches,
 };
+
+/// Various modes of operation for DKHASH - hash whole directories,
+/// single files, sign/verify hashfiles, and generate Ed22519 keypairs
+pub enum HashMode {
+    /// Recursively hash every file in a directory and all subdirectories
+    RecursiveDir(Arguments),
+    /// Compute the hash of a single file
+    SingleFile(Arguments),
+    /// Digitally sign a file with Ed22519
+    SignFile(Arguments),
+    /// Verify the Ed22519 digital signature
+    VerifyFile(Arguments),
+    /// Generate an Ed22519 keypair
+    GenKeyPair(Arguments),
+}
 
 /// Structure for storing command line arguments as parsed by `clap`
 pub struct Arguments {
@@ -56,8 +71,6 @@ pub struct Arguments {
     /// to store (on disk) the results of a hashing run when sending
     /// to someone else.
     pub generate_hashfile: Option<String>,
-    /// DKHASH operation mode (dir/file/sign/verify/genkey)
-    pub mode: HashMode,
     /// Path to the public or private key being used in signing/verifying.
     /// Also stores the prefix for 'genkey'
     pub keyfile: String,
@@ -83,7 +96,6 @@ impl FromArgMatches for Arguments {
                 logfile: matches.get_one::<String>("logfile").cloned(),
                 jobs: matches.get_one::<u64>("jobs").copied(),
                 generate_hashfile: matches.get_one::<String>("generate_hashfile").cloned(),
-                mode: HashMode::RecursiveDir,
                 keyfile: "".to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("file") {
@@ -97,7 +109,6 @@ impl FromArgMatches for Arguments {
                 logfile: None,
                 jobs: None,
                 generate_hashfile: None,
-                mode: HashMode::SingleFile,
                 keyfile: "".to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("sign") {
@@ -111,7 +122,6 @@ impl FromArgMatches for Arguments {
                 logfile: None,
                 jobs: None,
                 generate_hashfile: None,
-                mode: HashMode::SignFile,
                 keyfile: matches
                     .get_one::<String>("private_key")
                     .unwrap()
@@ -128,7 +138,6 @@ impl FromArgMatches for Arguments {
                 logfile: None,
                 jobs: None,
                 generate_hashfile: None,
-                mode: HashMode::VerifyFile,
                 keyfile: matches.get_one::<String>("public_key").unwrap().to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("genkey") {
@@ -142,7 +151,6 @@ impl FromArgMatches for Arguments {
                 logfile: None,
                 jobs: None,
                 generate_hashfile: None,
-                mode: HashMode::GenKeyPair,
                 keyfile: matches.get_one::<String>("prefix").unwrap().to_string(),
             })
         } else {
@@ -414,7 +422,7 @@ fn genkey_subcommand() -> Command {
 }
 
 /// Parse the command line arguments and return an `Arguments` struct
-pub fn parse_cli() -> Result<Arguments, clap::error::Error> {
+pub fn parse_cli() -> Result<HashMode, clap::error::Error> {
     let alg_arg = Arg::new("algorithm")
         .short('a')
         .long("alg")
@@ -440,5 +448,42 @@ pub fn parse_cli() -> Result<Arguments, clap::error::Error> {
         .subcommand(genkey_subcommand())
         .max_term_width(80)
         .get_matches();
-    Arguments::from_arg_matches(&args)
+    let matches: Arguments = Arguments::from_arg_matches(&args)?;
+
+    #[cfg(target_os = "windows")]
+    {
+        // This is an odd Windows/Clap quirk - if the path we are hashing contains
+        // a space, Windows has to encapsulate the path in a quoted string.
+        // Sometimes when tab-completing paths, Windows will insert a terminal backslash
+        // before the end quote mark. This confuses Clap's parser, which - if the path
+        // terminates in a backslash - will insert a double-quote ('"') at the
+        // end of the string [but not at the front.... :( ], which we must then
+        // handle or else fs::Path will consume it and return OS Error 123
+        // (Volume or Label Syntax Not Correct)
+        // Here, we inform the user and quit immediately.
+        // TODO - either tell Clap or fix it ourselves, but for now yell at the user
+        // and make them fix it.
+        if matches
+            .path_string
+            .chars()
+            .nth(matches.path_string.len() - 1)
+            == Some('"')
+        {
+            error!("[*] Remove the terminal '\\' from the path");
+            error!(
+                "[!] Re-run with path ==>\n\t'{}'",
+                &matches.path_string[..matches.path_string.len() - 1]
+            );
+            return Err(clap::Error::new(ErrorKind::InvalidValue));
+        }
+    }
+
+    match args.subcommand_name() {
+        Some("dir") => Ok(HashMode::RecursiveDir(matches)),
+        Some("file") => Ok(HashMode::SingleFile(matches)),
+        Some("sign") => Ok(HashMode::SignFile(matches)),
+        Some("verify") => Ok(HashMode::VerifyFile(matches)),
+        Some("genkey") => Ok(HashMode::GenKeyPair(matches)),
+        _ => Err(clap::Error::new(ErrorKind::UnknownArgument)),
+    }
 }
