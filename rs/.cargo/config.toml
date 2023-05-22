@@ -1,2 +1,5 @@
 [registries.crates-io]
 protocol = "sparse"
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=native"]

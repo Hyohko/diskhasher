@@ -1,5 +1,5 @@
 /*
-    DISKHASHER v0.3 - 2023 by Hyohko
+    DISKHASHER - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -26,16 +26,32 @@
 
 use {
     crate::error::HasherError,
+    chrono::{DateTime, Utc},
     regex::Regex,
     std::{
         fs::canonicalize,
         path::{Path, PathBuf},
+        time::SystemTime,
     },
 };
 
+/// Stitch an extra extension on to the end of a path - add a leading dot before
+/// the new extension. E.g. add_extension("myfile.txt", "new") -> "myfile.txt.new"
+pub(crate) fn add_extension(path: &mut std::path::PathBuf, extension: impl AsRef<std::path::Path>) {
+    match path.extension() {
+        Some(ext) => {
+            let mut ext = ext.to_os_string();
+            ext.push(".");
+            ext.push(extension.as_ref());
+            path.set_extension(ext)
+        }
+        None => path.set_extension(extension.as_ref()),
+    };
+}
+
 /// Canonicalizes a file path, checking to see that the file exists and returns
 /// an absolute path to that file.
-/// TODO: Once PathBuf::absolute() is part of Rust Stable, replace this function
+/// TODO: Once `PathBuf::absolute()` is part of Rust Stable, replace this function
 pub(crate) fn canonicalize_filepath(
     file_path: &str,
     containing_dir: &Path,
@@ -55,20 +71,33 @@ pub(crate) fn canonicalize_filepath(
     }
 }
 
+/// Retrieves the current system time and outputs it in RFC 3339 format,
+/// always as a UTC (+00:00 or Zulu) timestamp, to the nanosecond where possible
+/// e.g. %YYYY-%MM-%DDThh:mm:ss.sssssssss+00:00
+pub(crate) fn current_timestamp_as_string() -> String {
+    let now = SystemTime::now();
+    let now: DateTime<Utc> = now.into();
+    now.to_rfc3339()
+}
+
 /// Validates that at least the file name portion of a file path matches
 /// the given regular expression.
 pub(crate) fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
-    if let Some(path) = file_path.file_name() {
-        if let Some(str_path) = path.to_str() {
-            hash_regex.is_match(str_path)
-        } else {
-            error!("[-] Failed to convert path to string");
+    file_path.file_name().map_or_else(
+        || {
+            error!("[-] Failed to retrieve file name from path object");
             false
-        }
-    } else {
-        error!("[-] Failed to retrieve file name from path object");
-        false
-    }
+        },
+        |path| {
+            path.to_str().map_or_else(
+                || {
+                    error!("[-] Failed to convert path to string");
+                    false
+                },
+                |str_path| hash_regex.is_match(str_path),
+            )
+        },
+    )
 }
 
 /// Takes a line from a hashfile in the format "<hash hexstring> <path to file>",

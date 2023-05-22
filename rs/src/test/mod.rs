@@ -1,5 +1,5 @@
 /*
-    DISKHASHER v0.3 - 2023 by Hyohko
+    DISKHASHER - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -25,7 +25,7 @@
 */
 
 mod hashfile {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     #[test]
     fn replace_prefix() {
@@ -60,10 +60,14 @@ mod canonicalize_path {
         let rel: &str = "rel_exists.txt";
         assert!(File::create(&rel).is_ok());
         let base: PathBuf = env::current_dir().unwrap();
-        let expected = base.clone().join(rel);
+        let expected = base.clone().join(rel).display().to_string();
         let val = canonicalize_filepath(rel, &base);
         assert!(val.is_ok());
-        assert_eq!(val.unwrap(), expected);
+        let temp = val.unwrap().display().to_string();
+        // Windows canonical paths are....janky. If windows, this string replace will remove
+        // the canonical prefix, if any exists. in Nix, it is a No-Op.
+        let actual = temp.replace("\\\\?\\", "");
+        assert_eq!(actual, expected);
         remove_file(rel).unwrap();
     }
 
@@ -101,7 +105,7 @@ mod path_matches_regex {
             PathBuf::from("result1.txt"),             // numeral
             PathBuf::from("resultAAAA.txt"),          //extra chars
             PathBuf::from("result is this file.txt"), // whitepace
-            PathBuf::from("result_bohème.txt"),      // non-ascii chars
+            PathBuf::from("result_bohème.txt"),       // non-ascii chars
         ];
         for p in path {
             assert!(path_matches_regex(&regex, &p));
@@ -198,19 +202,26 @@ mod splitline {
 
 mod implements_traits {
     use crate::enums::HashAlg;
-    use crate::hasher::Hasher;
+    use crate::hasher::DirHasher;
 
     #[test]
     fn debug_print() {
-        let hasher: Hasher =
-            Hasher::new(HashAlg::MD5, String::from("./"), None, None, None, None).unwrap();
+        let hasher: DirHasher = DirHasher::new(
+            HashAlg::MD5,
+            &String::from("./").clone(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         println!("{:?}", hasher);
     }
 
     #[test]
     fn can_clone() {
-        let hasher: Hasher =
-            Hasher::new(HashAlg::MD5, String::from("./"), None, None, None, None).unwrap();
+        let hasher: DirHasher =
+            DirHasher::new(HashAlg::MD5, &String::from("./"), None, None, None, None).unwrap();
         let _myclone = hasher.clone();
     }
 }
@@ -241,10 +252,115 @@ mod validate_hexstring {
             "abcdef1234567890abcdef1234567890aabbccdda", // one too long
             "abcdef1234567890abc ef1234567890aabbccdd",  // space in the middle
             "abcdef1234567890abcQef1234567890aabbccdd",  // non-hex char in the middle
-            "abcdef1234567890abcèef1234567890aabbccdd", // unicode char in the middle
+            "abcdef1234567890abcèef1234567890aabbccdd",  // unicode char in the middle
         ];
         for b in bad_strings {
             assert!(validate_hexstring(b).is_err());
         }
+    }
+}
+
+mod hashtest {
+    use crate::{
+        enums::HashAlg, filedata::FileData, threadfunc::hash_file, util::canonicalize_filepath,
+    };
+    #[cfg(target_os = "linux")]
+    use std::os::unix::fs::MetadataExt;
+    use std::{
+        collections::HashMap,
+        env,
+        fs::{remove_file, File},
+        path::{Path, PathBuf},
+        process::Command,
+        str::from_utf8,
+    };
+
+    fn get_os_hash(testfile: &str, alg: &str) -> String {
+        let interim: Vec<u8>;
+        let outstr: String;
+        let output = if cfg!(target_os = "windows") {
+            let strarg = format!(
+                "(Get-Filehash .\\{testfile} -Algorithm {alg} | Select-Object Hash).Hash.ToLower()"
+            );
+            interim = Command::new("powershell")
+                .args(["-Command", strarg.as_str()])
+                .output()
+                .expect("failed to execute PowerShell")
+                .stdout;
+
+            outstr = from_utf8(&interim)
+                .expect("Should be standard format")
+                .to_string();
+            let ret = outstr.split_once('\r').unwrap().0.to_string();
+            ret
+        } else if cfg!(target_os = "linux") {
+            let strarg = format!("`which {alg}sum` `pwd`/{testfile}");
+            println!("{strarg}");
+            interim = Command::new(format!("{alg}sum"))
+                .arg(format!("./{testfile}").as_str())
+                .output()
+                .expect("failed to execute BASH")
+                .stdout;
+
+            outstr = from_utf8(&interim)
+                .expect("Should be standard format")
+                .to_string();
+            let ret = outstr.split_once(' ').unwrap().0.to_string();
+            ret
+        } else {
+            panic!("Unsupported OS");
+        };
+        output
+    }
+
+    fn run_all_hashes(testfile: &str) {
+        let algs = HashMap::from([
+            ("md5", HashAlg::MD5),
+            ("sha1", HashAlg::SHA1),
+            ("sha256", HashAlg::SHA256),
+            ("sha512", HashAlg::SHA512),
+        ]);
+
+        for (algstr, alg) in algs {
+            let expected = get_os_hash(testfile, algstr);
+            let base: PathBuf = env::current_dir().unwrap().join(testfile);
+            let absolute = Path::new(&base);
+            let path = canonicalize_filepath(&absolute.display().to_string(), &base).unwrap();
+            let fdata = FileData::new(
+                std::fs::metadata(&path).unwrap().len(),
+                path.clone(),
+                #[cfg(target_os = "linux")]
+                std::fs::metadata(&path).unwrap().ino(),
+            );
+            let result = hash_file(&fdata, alg, &None);
+            assert!(result.is_ok());
+            let actual = result.unwrap();
+            assert_eq!(expected, actual);
+        }
+    }
+
+    #[test]
+    fn hash_empty_file() {
+        let testfile: &str = "empty.txt";
+        assert!(File::create(&testfile).is_ok());
+        run_all_hashes(testfile);
+        assert!(remove_file(&testfile).is_ok());
+    }
+
+    #[test]
+    fn hash_random_file() {
+        let testfile: &str = "random.txt";
+        let random_bytes: Vec<u8> = (0..4096).map(|_| rand::random::<u8>()).collect();
+        let _ign = remove_file(&testfile); // remove it if it exists (panic case).
+        assert!(File::create(&testfile).is_ok());
+        assert!(std::fs::write(testfile, random_bytes).is_ok());
+        run_all_hashes(testfile);
+        assert!(remove_file(&testfile).is_ok());
+    }
+
+    #[test]
+    fn hash_known_file() {
+        let testfile: &str = "Cargo.toml";
+        run_all_hashes(testfile);
     }
 }

@@ -1,5 +1,5 @@
 /*
-    DISKHASHER v0.3 - 2023 by Hyohko
+    DISKHASHER - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -68,7 +68,7 @@ macro_rules! opt_open_file {
 /// This is our primary object, and we can construct one for every
 /// root directory we want to inspect.
 #[derive(Debug, Clone)]
-pub struct Hasher {
+pub struct DirHasher {
     pool: ThreadPool,
     alg: HashAlg,
     root: PathBuf,
@@ -81,17 +81,17 @@ pub struct Hasher {
     genhash_handle: Option<Arc<Mutex<File>>>,
 }
 
-impl Hasher {
+impl DirHasher {
     /// Hasher constructor function - from the arguments, we take the algorithm,
     /// the root directory to compute hashes on, the pattern of (if any) hash files
     /// we need to parse, the (optional) path to our results log file, and the
     /// number of concurrent jobs we will run.
     pub fn new(
         alg: HashAlg,
-        root_dir: String,
+        root_dir: &str,
         hashfile_pattern: Option<String>,
         logfile: Option<String>,
-        jobs: Option<usize>,
+        jobs: Option<u64>,
         gen_hashfile: Option<String>,
     ) -> Result<Self, HasherError> {
         let hash_regex: Regex;
@@ -120,11 +120,13 @@ impl Hasher {
             });
         }
 
-        let mut avail_threads = available_parallelism()
+        let mut avail_threads: u64 = available_parallelism()
             .map_err(|err| HasherError::Threading {
                 why: format!("{err}: Couldn't get number of available threads"),
             })?
-            .get();
+            .get()
+            .try_into()
+            .expect("Failed to cast usize to u64, unrecoverable");
 
         avail_threads = if let Some(total_threads) = jobs {
             if total_threads > avail_threads {
@@ -152,7 +154,7 @@ impl Hasher {
         let mp = MultiProgress::new();
         Ok(Self {
             pool: threadpool::Builder::new()
-                .num_threads(avail_threads)
+                .num_threads(avail_threads as usize)
                 .build(),
             alg,
             root,
@@ -250,7 +252,7 @@ impl Hasher {
         Ok(spinner)
     }
 
-    /// Split the vector of files from recursive_dir into hash files and non-hashfiles.
+    /// Split the vector of files from `recursive_dir` into hash files and non-hashfiles.
     fn identify_hashfiles(
         &mut self,
         file_vec: Vec<FileData>,
@@ -315,14 +317,14 @@ impl Hasher {
     /// Assign a single hash job to one of the threads in our threadpool
     fn spawn_single_job(
         &mut self,
-        file_data: &FileData,
+        mut file_data: FileData,
         bar: &ProgressBar,
         force: bool,
         verbose: bool,
     ) {
-        let mut fd_clone = file_data.clone();
+        //let mut fd_clone = file_data.clone();
         if let Some(mut v) = self.hashmap.remove(file_data.path()) {
-            fd_clone.set_hash(&mut v);
+            file_data.set_hash(&mut v);
         } else if !force {
             warn!("[!] {:?} => No hash found", file_data.path());
             bar.inc(1);
@@ -333,7 +335,7 @@ impl Hasher {
             .as_ref()
             .map_or_else(|| None, |_v| Some(self.root.clone()));
         let moved_args = ThreadFuncArgs {
-            fdata: fd_clone,
+            fdata: file_data,
             alg: self.alg,
             force,
             verbose,
@@ -369,7 +371,7 @@ impl Hasher {
             .mp
             .add(ProgressBar::new(num_files as u64).with_style(style));
         while let Some(ck) = self.checkedfiles.pop() {
-            self.spawn_single_job(&ck, &bar, force, verbose);
+            self.spawn_single_job(ck, &bar, force, verbose);
             // every 5000 hashes, shrink the memory space of the hashmap
             if num_files % 5000 == 0 {
                 self.hashmap.shrink_to_fit();

@@ -1,5 +1,5 @@
 /*
-    DISKHASHER v0.3 - 2023 by Hyohko
+    DISKHASHER - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -23,22 +23,26 @@
     Public License along with DISKHASHER. If not, see
     <https://www.gnu.org/licenses/>.
 */
-use {custom_error::custom_error, indicatif::style::TemplateError, std::path::StripPrefixError};
+use {
+    custom_error::custom_error, indicatif::style::TemplateError, minisign::PError,
+    std::path::StripPrefixError,
+};
 
 custom_error! {pub HasherError
-    Argument{why: String} = "CLI argument error => {why}",
-    Regex{why: String} = "Regular expression failed => {why}",
-    File{path: String, why: String} = "File/Directory error => '{path}': {why}",
-    Hash{why: String} = "Hash error => {why}",
-    Threading{why: String} = "Thread operation failed => {why}",
-    Parse{why: String} = "Parse error => {why}",
-    Io{why: String} = "IO Failure => {why}",
-    Style{why: String} = "ProgressBar style error => {why}",
+    Argument{why: String} = "CLI argument error\n\t=> {why}",
+    Regex{why: String} = "Regular expression failed\n\t=> {why}",
+    File{path: String, why: String} = "File/Directory error\n\t=> '{path}': {why}",
+    Hash{why: String} = "Hash error\n\t=> {why}",
+    Threading{why: String} = "Thread operation failed\n\t=> {why}",
+    Parse{why: String} = "Parse error\n\t=> {why}",
+    Io{why: String} = "IO Failure\n\t=> {why}",
+    Style{why: String} = "ProgressBar style error\n\t=> {why}",
+    Signature{why: String} = "Digital signature error\n\t=> {why}"
 }
 
 impl From<TemplateError> for HasherError {
     fn from(error: TemplateError) -> Self {
-        HasherError::Style {
+        Self::Style {
             why: format!("{error:?}"),
         }
     }
@@ -47,7 +51,7 @@ impl From<TemplateError> for HasherError {
 // todo https://stackoverflow.com/questions/53934888/how-to-include-the-file-path-in-an-io-error-in-rust
 impl From<std::io::Error> for HasherError {
     fn from(error: std::io::Error) -> Self {
-        HasherError::Io {
+        Self::Io {
             why: format!("{:?} => {error:?}", error.kind()),
         }
     }
@@ -55,7 +59,15 @@ impl From<std::io::Error> for HasherError {
 
 impl From<StripPrefixError> for HasherError {
     fn from(error: StripPrefixError) -> Self {
-        HasherError::Style {
+        Self::Parse {
+            why: format!("{error:?}"),
+        }
+    }
+}
+
+impl From<PError> for HasherError {
+    fn from(error: PError) -> Self {
+        Self::Signature {
             why: format!("{error:?}"),
         }
     }

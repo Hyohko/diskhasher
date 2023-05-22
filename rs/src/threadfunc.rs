@@ -1,5 +1,5 @@
 /*
-    DISKHASHER v0.3 - 2023 by Hyohko
+    DISKHASHER - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -88,10 +88,10 @@ macro_rules! read_all_into_hasher {
 
 /// Compute the hash of a single file, given the following conditions:
 /// 1. If the file length is zero, return immediately as zero-length hashes are already known
-/// 2. If the indicatif::MultiProgress option is set
+/// 2. If the `indicatif::MultiProgress` option is set
 ///  * If the file size equals or exceeds 128 MB, show a progress bar
 /// 3. In all cases, read the file in 2MB chunks and compute the hash as given by alg
-fn hash_file(
+pub(crate) fn hash_file(
     fdata: &FileData,
     alg: HashAlg,
     opt_mp: &Option<MultiProgress>,
@@ -138,10 +138,10 @@ fn hash_file(
     Ok(hex::encode(hasher.finalize()))
 }
 
-// export this function all the way to the top level
-pub fn hash_single_file(filename: String, alg: HashAlg) -> Result<(), HasherError> {
+/// Compute hash of a single file
+pub fn hash_single_file(filename: &str, alg: HashAlg) -> Result<(), HasherError> {
     // canonicalize file path and check for existence
-    let abspath = canonicalize_filepath(&filename, &std::env::current_dir()?)?;
+    let abspath = canonicalize_filepath(filename, &std::env::current_dir()?)?;
     let fdata = FileData::try_from(abspath)?;
     // Create a multiprogress in case this is a large file. Whether or not
     // it is displayed is determined by the hash_file() logic
@@ -157,7 +157,7 @@ pub fn hash_single_file(filename: String, alg: HashAlg) -> Result<(), HasherErro
     Ok(())
 }
 
-/// Calls hash_file and reports the success or failure (if --force is false),
+/// Calls `hash_file` and reports the success or failure (if --force is false),
 /// logging results to file if a valid file handle is passed in.
 pub(crate) fn perform_hash_threadfunc(args: ThreadFuncArgs) -> Result<(), HasherError> {
     let actual_hash = hash_file(&args.fdata, args.alg, &args.opt_mp)?;

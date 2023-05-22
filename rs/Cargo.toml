@@ -1,5 +1,5 @@
 #
-# DISKHASHER v0.3 - 2023 by Hyohko
+# DISKHASHER - 2023 by Hyohko
 
 # ##################################
 # GPLv3 NOTICE AND DISCLAIMER
@@ -29,12 +29,17 @@ name = "dkhash"
 description = """Recursive directory file hasher - \
 computes cryptographic checksums for every \
 file in a directory. Supports a variety of hash algorithms, \
-see --help for details"""
+also has functionality for digitally signing hash files and \
+validating digital signatures using Ed22519 for greater \
+confidence in file integrity."""
 authors = ["Hyohko"]
-version = "0.4.0"
+version = "0.5.2"
 edition = "2021"
 license = "GPLv3"
 repository = "https://github.com/Hyohko/diskhasher"
+readme = "../README.md"
+keywords = ["md5", "sha1", "sha2", "sha3", "cli", "ed22519", "hashing", "crypto"]
+categories = ["file-integrity","command-line","system-utility"]
 
 [profile.release]
 lto = "fat"
@@ -44,20 +49,24 @@ panic = "abort"
 opt-level = 3 # "s" binary size, omit for speed
 
 [dependencies]
-aligned_box = "^0.2"
-clap = { version = "^4", features = ["cargo", "wrap_help"] }
-custom_error = "^1.9"
-digest = "^0.10"
-hex = "^0.4"
-indicatif = "^0.17"
+aligned_box = "0.2.1"
+chrono = "0.4.24"
+clap = { version = "4.2", features = ["cargo", "wrap_help"] }
+cpu-endian = "0.1.1"
+custom_error = "1.9"
+digest = "0.10.6"
+hex = "0.4.3"
+indicatif = "0.17.3"
 #lazy_static = "^1.4"
-log = "^0.4"
-md-5 = "^0.10"
-pretty_env_logger = "^0.4"
-regex = "^1"
-sha1 = "^0.10"
-sha2 = "^0.10"
-sha3 = "^0.10"
-threadpool = "^1.8"
-typenum = "^1"
-walkdir = "^2"
+log = "0.4.17"
+md-5 = "0.10.5"
+minisign = "0.7.3"
+pretty_env_logger = "0.4.0"
+rand = "0.8.5"
+regex = "1.7"
+sha1 = "0.10.5"
+sha2 = "0.10.6"
+sha3 = "0.10.6"
+threadpool = "1.8"
+typenum = "1.16"
+walkdir = "2.3"

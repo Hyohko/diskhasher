@@ -1,5 +1,5 @@
 /*
-    DISKHASHER v0.3 - 2023 by Hyohko
+    DISKHASHER - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -29,7 +29,9 @@ extern crate pretty_env_logger;
 extern crate log;
 
 use {
-    dkhash::{hash_single_file, parse_cli, HashMode, Hasher},
+    dkhash::{
+        gen_keypair, hash_single_file, parse_cli, sign_file, verify_file, DirHasher, HashMode,
+    },
     log::LevelFilter,
 };
 
@@ -42,7 +44,7 @@ fn main() {
         .filter_level(LevelFilter::Info)
         .init();
 
-    let args = match parse_cli() {
+    let cli = match parse_cli() {
         Ok(v) => v,
         Err(err) => {
             error!("[!] Arguments: {err}");
@@ -50,11 +52,11 @@ fn main() {
         }
     };
 
-    match args.mode {
-        HashMode::RecursiveDir => {
-            let mut myhasher = match Hasher::new(
+    match cli {
+        HashMode::RecursiveDir(args) => {
+            let mut myhasher = match DirHasher::new(
                 args.algorithm,
-                args.path_string.clone(),
+                &args.path_string,
                 args.pattern,
                 args.logfile,
                 args.jobs,
@@ -71,17 +73,33 @@ fn main() {
                 return;
             };
         }
-        HashMode::SingleFile => {
-            if let Err(err) = hash_single_file(args.path_string, args.algorithm) {
+        HashMode::OneFile(args) => {
+            if let Err(err) = hash_single_file(&args.path_string, args.algorithm) {
                 error!("[!] Runtime: {err}");
                 return;
             }
         }
-        _ => {
-            error!(
-                "Must select subcommand (should be handlied by parser, but for completeness...)"
-            );
-            return;
+        HashMode::SignFile(args) => match sign_file(args.path_string, args.keyfile) {
+            Ok(()) => info!("[+] File signed successfully"),
+            Err(err) => {
+                error!("[!] Failed to sign file");
+                error!("[!] Runtime: {err}");
+                return;
+            }
+        },
+        HashMode::VerifyFile(args) => match verify_file(args.path_string, args.keyfile) {
+            Ok(()) => info!("[+] Signature is valid"),
+            Err(err) => {
+                error!("[!] Signature failed to validate");
+                error!("[!] Runtime: {err}");
+                return;
+            }
+        },
+        HashMode::GenKeyPair(args) => {
+            if let Err(err) = gen_keypair(&args.keyfile) {
+                error!("[!] Runtime: {err}");
+                return;
+            }
         }
     }
     info!("[+] Done");
