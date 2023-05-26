@@ -1,27 +1,27 @@
 #!/bin/sh
 
-# DISKHASHER - 2023 by Hyohko
+# DKHASH - 2023 by Hyohko
 
 ##################################
 #   GPLv3 NOTICE AND DISCLAIMER
 ##################################
 #
-# This file is part of DISKHASHER.
+# This file is part of DKHASH.
 #
-# DISKHASHER is free software: you can redistribute it
+# DKHASH is free software: you can redistribute it
 # and/or modify it under the terms of the GNU General
 # Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at
 # your option) any later version.
 #
-# DISKHASHER is distributed in the hope that it will
+# DKHASH is distributed in the hope that it will
 # be useful, but WITHOUT ANY WARRANTY; without even
 # the implied warranty of MERCHANTABILITY or FITNESS
 # FOR A PARTICULAR PURPOSE. See the GNU General Public
 # License for more details.
 #
 # You should have received a copy of the GNU General
-# Public License along with DISKHASHER. If not, see
+# Public License along with DKHASH. If not, see
 # <https://www.gnu.org/licenses/>.
 
 source "$HOME/.cargo/env"

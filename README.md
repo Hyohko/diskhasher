@@ -103,13 +103,13 @@ Usage: dkhash dir [OPTIONS] --alg <algorithm> <directory>
 
 Arguments:
   <directory>
-          Diskhasher will perform a cryptographic hash on every regular file in
+          dkhash will perform a cryptographic hash on every regular file in
           this directory and every one of its subdirectories. Symlinks and other
           non-file entities will be ignored
 
 Options:
   -a, --alg <algorithm>
-          Diskhasher currently supports multiple hashing algorithms. Users are
+          dkhash currently supports multiple hashing algorithms. Users are
           encouraged to use more secure algorithms where possible, and although
           MD5 and SHA1 are included for backwards compatibility purposes, users
           should be aware that they are cryptographically broken and
@@ -217,7 +217,7 @@ Arguments:
 
 Options:
   -a, --alg <algorithm>
-          Diskhasher currently supports multiple hashing algorithms. Users are
+          dkhash currently supports multiple hashing algorithms. Users are
           encouraged to use more secure algorithms where possible, and although
           MD5 and SHA1 are included for backwards compatibility purposes, users
           should be aware that they are cryptographically broken and

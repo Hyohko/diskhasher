@@ -1,26 +1,26 @@
 /*
-    DISKHASHER - 2023 by Hyohko
+    DKHASH - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
     ##################################
 
-    This file is part of DISKHASHER.
+    This file is part of DKHASH.
 
-    DISKHASHER is free software: you can redistribute it
+    DKHASH is free software: you can redistribute it
     and/or modify it under the terms of the GNU General
     Public License as published by the Free Software
     Foundation, either version 3 of the License, or (at
     your option) any later version.
 
-    DISKHASHER is distributed in the hope that it will
+    DKHASH is distributed in the hope that it will
     be useful, but WITHOUT ANY WARRANTY; without even
     the implied warranty of MERCHANTABILITY or FITNESS
     FOR A PARTICULAR PURPOSE. See the GNU General Public
     License for more details.
 
     You should have received a copy of the GNU General
-    Public License along with DISKHASHER. If not, see
+    Public License along with DKHASH. If not, see
     <https://www.gnu.org/licenses/>.
 */
 use crate::enums::{FileSortLogic, HashAlg};
@@ -222,7 +222,7 @@ fn dir_subcommand(alg_arg: &Arg) -> Command {
                 .required(true)
                 .help("Path to the directory we want to validate")
                 .long_help(
-                    "Diskhasher will perform a cryptographic hash on every regular \
+                    "dkhash will perform a cryptographic hash on every regular \
                 file in this directory and every one of its subdirectories. \
                 Symlinks and other non-file entities will be ignored",
                 ),
@@ -430,7 +430,7 @@ pub fn parse_cli() -> Result<HashMode, clap::error::Error> {
         .value_parser(value_parser!(HashAlg))
         .help("Algorithm to use")
         .long_help(
-            "Diskhasher currently supports multiple hashing algorithms. Users are \
+            "dkhash currently supports multiple hashing algorithms. Users are \
             encouraged to use more secure algorithms where possible, and although MD5 \
             and SHA1 are included for backwards compatibility purposes, users should \
             be aware that they are cryptographically broken and untrustworthy for more \

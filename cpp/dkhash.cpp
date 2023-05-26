@@ -1,26 +1,26 @@
 /*
-    DISKHASHER - 2023 by Hyohko
+    DKHASH - 2023 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
     ##################################
 
-    This file is part of DISKHASHER.
+    This file is part of DKHASH.
 
-    DISKHASHER is free software: you can redistribute it
+    DKHASH is free software: you can redistribute it
     and/or modify it under the terms of the GNU General
     Public License as published by the Free Software
     Foundation, either version 3 of the License, or (at
     your option) any later version.
 
-    DISKHASHER is distributed in the hope that it will
+    DKHASH is distributed in the hope that it will
     be useful, but WITHOUT ANY WARRANTY; without even
     the implied warranty of MERCHANTABILITY or FITNESS
     FOR A PARTICULAR PURPOSE. See the GNU General Public
     License for more details.
 
     You should have received a copy of the GNU General
-    Public License along with DISKHASHER. If not, see
+    Public License along with DKHASH. If not, see
     <https://www.gnu.org/licenses/>.
 
     ##################################
@@ -90,7 +90,7 @@ void print_usage()
 {
     const char usage[] = "\n"
     "================================================================================\n"
-    "  If no files were hashed during this run of DISKHASHER, validate all of\n"
+    "  If no files were hashed during this run of DKHASH, validate all of\n"
     "  the checksum files in the directory. Each file in a checksum file must be the\n"
     "  the correct relative path to the checksum file itself. For example, using a\n"
     "  checksum file in the root of the directory, each sum has to look like this:\n\n"
