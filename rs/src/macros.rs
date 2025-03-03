@@ -225,7 +225,7 @@ macro_rules! filelog {
     ($msg:expr, $filehandleopt:expr) => {
         if let Some(handle) = $filehandleopt {
             let mut guarded_filehandle = handle.lock().expect("Mutex unlock failure - Panic!");
-            (*guarded_filehandle).write($msg.as_bytes()).ok();
+            (*guarded_filehandle).write_all($msg.as_bytes()).ok();
         }
     };
 }

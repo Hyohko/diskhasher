@@ -372,8 +372,8 @@ impl DirHasher {
             .add(ProgressBar::new(num_files as u64).with_style(style));
         while let Some(ck) = self.checkedfiles.pop() {
             self.spawn_single_job(ck, &bar, force, verbose);
-            // every 5000 hashes, shrink the memory space of the hashmap
-            if num_files % 5000 == 0 {
+            // every 4096 hashes (we like our page multiples), shrink the memory space of the hashmap
+            if num_files % 4096 == 0 {
                 self.hashmap.shrink_to_fit();
                 self.checkedfiles.shrink_to_fit();
             }
