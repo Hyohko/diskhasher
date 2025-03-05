@@ -27,7 +27,7 @@
 use crate::constants::ALIGNMENT;
 
 use crate::{
-    constants::{O_FLAGS, SIZE_128MB, SIZE_2MB},
+    constants::{O_FLAGS, SIZE_2MB, SIZE_128MB},
     enums::HashAlg,
     error::HasherError,
     filedata::FileData,

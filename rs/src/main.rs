@@ -30,7 +30,7 @@ extern crate log;
 
 use {
     dkhash::{
-        gen_keypair, hash_single_file, parse_cli, sign_file, verify_file, DirHasher, HashMode,
+        DirHasher, HashMode, gen_keypair, hash_single_file, parse_cli, sign_file, verify_file,
     },
     log::LevelFilter,
 };

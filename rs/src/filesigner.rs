@@ -28,10 +28,10 @@ use {
         error::HasherError,
         util::{add_extension, current_timestamp_as_string},
     },
-    cpu_endian::{working, Endian},
+    cpu_endian::{Endian, working},
     minisign::{KeyPair, PublicKey, SecretKey, SignatureBox},
     std::{
-        fs::{canonicalize, File},
+        fs::{File, canonicalize},
         io::Write,
         path::{Path, PathBuf},
     },
