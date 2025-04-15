@@ -24,7 +24,7 @@
     <https://www.gnu.org/licenses/>.
 */
 
-use clap::{builder::PossibleValue, ValueEnum};
+use clap::{ValueEnum, builder::PossibleValue};
 
 /// Supported hash algorithms
 //#[non_exhaustive]

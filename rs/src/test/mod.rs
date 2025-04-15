@@ -43,7 +43,7 @@ mod canonicalize_path {
     use crate::util::canonicalize_filepath;
     use std::{
         env,
-        fs::{remove_file, File},
+        fs::{File, remove_file},
         path::{Path, PathBuf},
     };
 
@@ -128,7 +128,7 @@ mod path_matches_regex {
 
 mod splitline {
     use crate::util::split_hashfile_line;
-    use std::fs::{canonicalize, remove_file, File};
+    use std::fs::{File, canonicalize, remove_file};
     use std::path::PathBuf;
 
     #[test]
@@ -186,8 +186,12 @@ mod splitline {
             format!("abcdef1234567890abcdef1234567890aabbccdd {good_path}"), //SHA1
             format!("abcdef1234567890abcdef1234567890abcdef1234567890aabbccdd {good_path}"), //SHA224
             format!("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}"), //SHA256
-            format!("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}"), //SHA384
-            format!("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}") //SHA512
+            format!(
+                "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}"
+            ), //SHA384
+            format!(
+                "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}"
+            ), //SHA512
         ];
         for case in newlines {
             let hashpath: PathBuf = PathBuf::new();
@@ -237,7 +241,7 @@ mod validate_hexstring {
             "abcdef1234567890abcdef1234567890abcdef1234567890aabbccdd",
             "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
         ];
         for g in good_strings {
             assert!(validate_hexstring(g).is_ok());
@@ -269,7 +273,7 @@ mod hashtest {
     use std::{
         collections::HashMap,
         env,
-        fs::{remove_file, File},
+        fs::{File, remove_file},
         path::{Path, PathBuf},
         process::Command,
         str::from_utf8,

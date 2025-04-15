@@ -28,7 +28,7 @@ use crate::{
     enums::{FileSortLogic, HashAlg},
     error::HasherError,
     filedata::FileData,
-    threadfunc::{perform_hash_threadfunc, ThreadFuncArgs},
+    threadfunc::{ThreadFuncArgs, perform_hash_threadfunc},
     util::{path_matches_regex, split_hashfile_line},
 };
 
@@ -38,8 +38,8 @@ use {
     std::{
         cmp::Reverse,
         collections::HashMap,
-        fs::canonicalize,
         fs::File,
+        fs::canonicalize,
         io::{BufRead, BufReader},
         path::{Path, PathBuf},
         sync::{Arc, Mutex},
@@ -267,7 +267,9 @@ impl DirHasher {
             if force {
                 warn!("[-] {reason}");
             } else {
-                error!("[-] '--force' flag not specified, either force computation or check your regex pattern");
+                error!(
+                    "[-] '--force' flag not specified, either force computation or check your regex pattern"
+                );
                 return Err(HasherError::Regex { why: reason });
             }
         }
