@@ -108,7 +108,10 @@ pub fn sign_file(
         let sk: SecretKey = SecretKey::from_file(private_key, password)?;
         info!("Deriving public key from private key");
         pk = PublicKey::from_secret_key(&sk)?;
-        let untrusted_comment = Some("Signed by DKHASH".to_string());
+
+        const VERSION: &str = env!("CARGO_PKG_VERSION");
+        const DKHASH: &str = env!("CARGO_PKG_NAME");
+        let untrusted_comment = Some(format!("Signed by {DKHASH} {VERSION}").to_string());
         let trusted_comment = Some(format!(
             "Key ID => {} ||| Signature Time/Date (UTC) => {}",
             keynum_to_string(&pk),
