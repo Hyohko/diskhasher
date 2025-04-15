@@ -37,59 +37,13 @@ mod hashfile {
         let expected_str = String::from("this/file");
         assert_eq!(result_str, expected_str);
     }
-}
-
-mod canonicalize_path {
-    use crate::util::canonicalize_filepath;
-    use std::{
-        env,
-        fs::{File, remove_file},
-        path::{Path, PathBuf},
-    };
 
     #[test]
-    fn relative_path_not_exists() {
-        let rel: &str = "rel_does_not_exist.txt";
-        let base: PathBuf = env::current_dir().unwrap();
-        let val = canonicalize_filepath(rel, &base);
-        assert!(val.is_err());
-    }
-
-    #[test]
-    fn relative_path_exists() {
-        let rel: &str = "rel_exists.txt";
-        assert!(File::create(&rel).is_ok());
-        let base: PathBuf = env::current_dir().unwrap();
-        let expected = base.clone().join(rel).display().to_string();
-        let val = canonicalize_filepath(rel, &base);
-        assert!(val.is_ok());
-        let temp = val.unwrap().display().to_string();
-        // Windows canonical paths are....janky. If windows, this string replace will remove
-        // the canonical prefix, if any exists. in Nix, it is a No-Op.
-        let actual = temp.replace("\\\\?\\", "");
-        assert_eq!(actual, expected);
-        remove_file(rel).unwrap();
-    }
-
-    #[test]
-    fn absolute_path_not_exists() {
-        let rel: &str = "abs_does_not_exist.txt";
-        let base: PathBuf = env::current_dir().unwrap().join(rel);
-        let absolute = Path::new(&base);
-        let val = canonicalize_filepath(&absolute.display().to_string(), &base);
-        assert!(val.is_err());
-    }
-
-    #[test]
-    fn absolute_path_exists() {
-        let rel: &str = "abs_exists.txt";
-        let base: PathBuf = env::current_dir().unwrap().join(rel);
-        let absolute = Path::new(&base);
-        assert!(File::create(&absolute).is_ok());
-        let val = canonicalize_filepath(&absolute.display().to_string(), &base);
-        assert!(val.is_ok());
-        assert_eq!(val.unwrap(), absolute);
-        remove_file(absolute).unwrap();
+    fn replace_prefix_fail() {
+        let file_to_fix = Path::new("/path/to/this/file");
+        let root_dir = Path::new("/path/to/that");
+        let fixed_path = file_to_fix.strip_prefix(root_dir);
+        assert!(fixed_path.is_err());
     }
 }
 
@@ -126,84 +80,6 @@ mod path_matches_regex {
     }
 }
 
-mod splitline {
-    use crate::util::split_hashfile_line;
-    use std::fs::{File, canonicalize, remove_file};
-    use std::path::PathBuf;
-
-    #[test]
-    fn empty() {
-        let newline: String = "".to_string();
-        let hashpath: PathBuf = PathBuf::new();
-        assert!(split_hashfile_line(&newline, &hashpath).is_err());
-    }
-
-    #[test]
-    fn notenough_args() {
-        let newline: String = "asdfasdfasdf".to_string();
-        let hashpath: PathBuf = PathBuf::new();
-        assert!(split_hashfile_line(&newline, &hashpath).is_err());
-    }
-
-    #[test]
-    fn badhash() {
-        let newline: String = "asdfasdfasdf asdfasdfasdfasdf".to_string();
-        let hashpath: PathBuf = PathBuf::new();
-        assert!(split_hashfile_line(&newline, &hashpath).is_err());
-    }
-
-    #[test]
-    fn hashtooshort() {
-        let newline: String = "abcdef123456 asdfasdfasdfasdf".to_string();
-        let hashpath: PathBuf = PathBuf::new();
-        assert!(split_hashfile_line(&newline, &hashpath).is_err());
-    }
-
-    #[test]
-    fn hashnothex() {
-        // MD5 length but has char that is not valid hex
-        let newline: String = "abcdef1234567890abcdef123456789X asdfasdfasdfasdf".to_string();
-        let hashpath: PathBuf = PathBuf::new();
-        assert!(split_hashfile_line(&newline, &hashpath).is_err());
-    }
-
-    #[test]
-    fn badpath() {
-        let bad_path = "./doesnotexist.txt".to_string();
-        let newline: String = format!("abcdef1234567890abcdef1234567890 {bad_path}");
-        let hashpath: PathBuf = PathBuf::new();
-        assert!(split_hashfile_line(&newline, &hashpath).is_err());
-    }
-
-    #[test]
-    fn checklengths() {
-        let good_path = "./exists.txt".to_string();
-        assert!(File::create(&good_path).is_ok());
-        let good_path_display: PathBuf = canonicalize(&good_path).unwrap();
-
-        let newlines: Vec<String> = vec![
-            format!("abcdef1234567890abcdef1234567890 {good_path}"), //md5
-            format!("abcdef1234567890abcdef1234567890aabbccdd {good_path}"), //SHA1
-            format!("abcdef1234567890abcdef1234567890abcdef1234567890aabbccdd {good_path}"), //SHA224
-            format!("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}"), //SHA256
-            format!(
-                "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}"
-            ), //SHA384
-            format!(
-                "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}"
-            ), //SHA512
-        ];
-        for case in newlines {
-            let hashpath: PathBuf = PathBuf::new();
-            let result = split_hashfile_line(&case, &hashpath);
-            println!("{result:?}");
-            assert!(result.is_ok());
-            assert_eq!(result.unwrap().0, good_path_display);
-        }
-        remove_file(&good_path).unwrap_or_else(|err| println!("File error: {err}"));
-    }
-}
-
 mod implements_traits {
     use crate::enums::HashAlg;
     use crate::hasher::DirHasher;
@@ -227,40 +103,6 @@ mod implements_traits {
         let hasher: DirHasher =
             DirHasher::new(HashAlg::MD5, &String::from("./"), None, None, None, None).unwrap();
         let _myclone = hasher.clone();
-    }
-}
-
-mod validate_hexstring {
-    use crate::util::validate_hexstring;
-
-    #[test]
-    fn good_input() {
-        let good_strings: [&str; 6] = [
-            "abcdef1234567890abcdef1234567890",
-            "abcdef1234567890abcdef1234567890aabbccdd",
-            "abcdef1234567890abcdef1234567890abcdef1234567890aabbccdd",
-            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-        ];
-        for g in good_strings {
-            assert!(validate_hexstring(g).is_ok());
-        }
-    }
-
-    #[test]
-    fn bad_input() {
-        let bad_strings: [&str; 6] = [
-            "",                                          // zero length
-            "abcdef1234567890abcdef1234567890aabbccd",   // one too short
-            "abcdef1234567890abcdef1234567890aabbccdda", // one too long
-            "abcdef1234567890abc ef1234567890aabbccdd",  // space in the middle
-            "abcdef1234567890abcQef1234567890aabbccdd",  // non-hex char in the middle
-            "abcdef1234567890abcèef1234567890aabbccdd",  // unicode char in the middle
-        ];
-        for b in bad_strings {
-            assert!(validate_hexstring(b).is_err());
-        }
     }
 }
 
@@ -369,6 +211,235 @@ mod hashtest {
     }
 }
 
+mod util_test {
+    use crate::util::{
+        add_extension, canonicalize_filepath, split_hashfile_line, validate_hexstring,
+    };
+    use std::{
+        env,
+        fs::{File, canonicalize, remove_file},
+        path::{Path, PathBuf},
+    };
+
+    // canonicalize_filepath tests
+    #[test]
+    fn canonicalize_relative_path_not_exists() {
+        let rel: &str = "rel_does_not_exist.txt";
+        let base: PathBuf = env::current_dir().unwrap();
+        let val = canonicalize_filepath(rel, &base);
+        assert!(val.is_err());
+    }
+
+    #[test]
+    fn canonicalize_relative_path_exists() {
+        let rel: &str = "rel_exists.txt";
+        assert!(File::create(&rel).is_ok());
+        let base: PathBuf = env::current_dir().unwrap();
+        let expected = base.clone().join(rel).display().to_string();
+        let val = canonicalize_filepath(rel, &base);
+        assert!(val.is_ok());
+        let temp = val.unwrap().display().to_string();
+        // Windows canonical paths are....janky. If windows, this string replace will remove
+        // the canonical prefix, if any exists. in Nix, it is a No-Op.
+        let actual = temp.replace("\\\\?\\", "");
+        assert_eq!(actual, expected);
+        remove_file(rel).unwrap();
+    }
+
+    #[test]
+    fn canonicalize_absolute_path_not_exists() {
+        let rel: &str = "abs_does_not_exist.txt";
+        let base: PathBuf = env::current_dir().unwrap().join(rel);
+        let absolute = Path::new(&base);
+        let val = canonicalize_filepath(&absolute.display().to_string(), &base);
+        assert!(val.is_err());
+    }
+
+    #[test]
+    fn canonicalize_absolute_path_exists() {
+        let rel: &str = "abs_exists.txt";
+        let base: PathBuf = env::current_dir().unwrap().join(rel);
+        let absolute = Path::new(&base);
+        assert!(File::create(&absolute).is_ok());
+        let val = canonicalize_filepath(&absolute.display().to_string(), &base);
+        assert!(val.is_ok());
+        assert_eq!(val.unwrap(), absolute);
+        remove_file(absolute).unwrap();
+    }
+
+    // split_hashfile_line tests
+    #[test]
+    fn splitline_empty() {
+        let newline: String = "".to_string();
+        let hashpath: PathBuf = PathBuf::new();
+        assert!(split_hashfile_line(&newline, &hashpath).is_err());
+    }
+
+    #[test]
+    fn splitline_notenough_args() {
+        let newline: String = "asdfasdfasdf".to_string();
+        let hashpath: PathBuf = PathBuf::new();
+        assert!(split_hashfile_line(&newline, &hashpath).is_err());
+    }
+
+    #[test]
+    fn splitline_badhash() {
+        let newline: String = "asdfasdfasdf asdfasdfasdfasdf".to_string();
+        let hashpath: PathBuf = PathBuf::new();
+        assert!(split_hashfile_line(&newline, &hashpath).is_err());
+    }
+
+    #[test]
+    fn splitline_hashtooshort() {
+        let newline: String = "abcdef123456 asdfasdfasdfasdf".to_string();
+        let hashpath: PathBuf = PathBuf::new();
+        assert!(split_hashfile_line(&newline, &hashpath).is_err());
+    }
+
+    #[test]
+    fn splitline_hashnothex() {
+        // MD5 length but has char that is not valid hex
+        let newline: String = "abcdef1234567890abcdef123456789X asdfasdfasdfasdf".to_string();
+        let hashpath: PathBuf = PathBuf::new();
+        assert!(split_hashfile_line(&newline, &hashpath).is_err());
+    }
+
+    #[test]
+    fn splitline_badpath() {
+        let bad_path = "./doesnotexist.txt".to_string();
+        let newline: String = format!("abcdef1234567890abcdef1234567890 {bad_path}");
+        let hashpath: PathBuf = PathBuf::new();
+        assert!(split_hashfile_line(&newline, &hashpath).is_err());
+    }
+
+    #[test]
+    fn splitline_checklengths() {
+        let good_path = "./exists.txt".to_string();
+        assert!(File::create(&good_path).is_ok());
+        let good_path_display: PathBuf = canonicalize(&good_path).unwrap();
+
+        let newlines: Vec<String> = vec![
+            format!("abcdef1234567890abcdef1234567890 {good_path}"), //md5
+            format!("abcdef1234567890abcdef1234567890aabbccdd {good_path}"), //SHA1
+            format!("abcdef1234567890abcdef1234567890abcdef1234567890aabbccdd {good_path}"), //SHA224
+            format!("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}"), //SHA256
+            format!(
+                "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}"
+            ), //SHA384
+            format!(
+                "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890 {good_path}"
+            ), //SHA512
+        ];
+        for case in newlines {
+            let hashpath: PathBuf = PathBuf::new();
+            let result = split_hashfile_line(&case, &hashpath);
+            println!("{result:?}");
+            assert!(result.is_ok());
+            assert_eq!(result.unwrap().0, good_path_display);
+        }
+        remove_file(&good_path).unwrap_or_else(|err| println!("File error: {err}"));
+    }
+
+    // validate_hexstring tests
+    #[test]
+    fn hexstrings_good_input() {
+        let good_strings: [&str; 6] = [
+            "abcdef1234567890abcdef1234567890",
+            "abcdef1234567890abcdef1234567890aabbccdd",
+            "abcdef1234567890abcdef1234567890abcdef1234567890aabbccdd",
+            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        ];
+        for g in good_strings {
+            assert!(validate_hexstring(g).is_ok());
+        }
+    }
+
+    #[test]
+    fn hexstrings_bad_input() {
+        let bad_strings: [&str; 6] = [
+            "",                                          // zero length
+            "abcdef1234567890abcdef1234567890aabbccd",   // one too short
+            "abcdef1234567890abcdef1234567890aabbccdda", // one too long
+            "abcdef1234567890abc ef1234567890aabbccdd",  // space in the middle
+            "abcdef1234567890abcQef1234567890aabbccdd",  // non-hex char in the middle
+            "abcdef1234567890abcèef1234567890aabbccdd",  // unicode char in the middle
+        ];
+        for b in bad_strings {
+            assert!(validate_hexstring(b).is_err());
+        }
+    }
+
+    // add_extension tests
+    #[test]
+    fn add_extension_test() {
+        let mut path = PathBuf::from("testfile.txt");
+        let ext = "newext";
+        add_extension(&mut path, ext);
+        assert_eq!(path.to_str().unwrap(), "testfile.txt.newext");
+    }
+
+    #[test]
+    fn add_extension_no_ext() {
+        let mut path = PathBuf::from("testfile");
+        let ext = "newext";
+        add_extension(&mut path, ext);
+        assert_eq!(path.to_str().unwrap(), "testfile.newext");
+    }
+}
+
+mod filesign_test {
+    use crate::filesigner::{gen_keypair, keynum_to_string, sign_file, verify_file};
+    use crate::util::add_extension;
+    use minisign::{PublicKey, SecretKey};
+    use std::fs::{File, remove_file};
+    use std::path::PathBuf;
+
+    // Write a test for key generation and usage
+    #[test]
+    fn key_generation_and_usage() {
+        let testfile = "keygen_testfile.txt".to_string();
+        let key_prefix = "keygen_test";
+        let pubkey = format!("{key_prefix}.pub").to_string();
+        let privkey = format!("{key_prefix}.key").to_string();
+        // remove generated keys just in case. If they don't exist, ignore the error.
+        let _ = remove_file(&pubkey);
+        let _ = remove_file(&privkey);
+        let content = b"Test content for key generation";
+        let password = "password".to_string();
+
+        // Create test file
+        assert!(File::create(&testfile).is_ok());
+        assert!(std::fs::write(&testfile, content).is_ok());
+
+        // Generate keypair
+        let ret = gen_keypair(&key_prefix, Some(password.clone()));
+        assert!(ret.is_ok());
+
+        // Derive the expected signature extension
+        let mut signature_file: PathBuf = testfile.clone().into();
+        {
+            // scope
+            let sk: SecretKey = SecretKey::from_file(&privkey, Some(password.clone()))
+                .expect("Failed to read private key");
+            let pk = PublicKey::from_secret_key(&sk).expect("Failed to derive public key");
+            add_extension(&mut signature_file, keynum_to_string(&pk));
+        }
+        // Sign the file with the private key
+        assert!(sign_file(&testfile, &privkey, Some(password.clone())).is_ok());
+
+        // Verify the file with the public key
+        assert!(verify_file(&testfile, &pubkey).is_ok());
+
+        // Cleanup
+        assert!(remove_file(testfile).is_ok());
+        assert!(remove_file(signature_file).is_ok());
+        assert!(remove_file(pubkey).is_ok());
+        assert!(remove_file(privkey).is_ok());
+    }
+}
+
 /*mod cli_test {
     use crate::cli::parse_args;
     use clap::ErrorKind;
@@ -427,54 +498,3 @@ mod hashtest {
         assert_eq!(matches.unwrap_err().kind, ErrorKind::DisplayVersion);
     }
 }*/
-
-mod filesign_test {
-    use crate::filesigner::{gen_keypair, keynum_to_string, sign_file, verify_file};
-    use crate::util::add_extension;
-    use minisign::{PublicKey, SecretKey};
-    use std::fs::{File, remove_file};
-    use std::path::PathBuf;
-
-    // Write a test for key generation and usage
-    #[test]
-    fn key_generation_and_usage() {
-        let testfile = "keygen_testfile.txt".to_string();
-        let key_prefix = "keygen_test";
-        let pubkey = format!("{key_prefix}.pub").to_string();
-        let privkey = format!("{key_prefix}.key").to_string();
-        // remove generated keys just in case. If they don't exist, ignore the error.
-        let _ = remove_file(&pubkey);
-        let _ = remove_file(&privkey);
-        let content = b"Test content for key generation";
-        let password = "password".to_string();
-
-        // Create test file
-        assert!(File::create(&testfile).is_ok());
-        assert!(std::fs::write(&testfile, content).is_ok());
-
-        // Generate keypair
-        let ret = gen_keypair(&key_prefix, Some(password.clone()));
-        assert!(ret.is_ok());
-
-        // Derive the expected signature extension
-        let mut signature_file: PathBuf = testfile.clone().into();
-        {
-            // scope
-            let sk: SecretKey = SecretKey::from_file(&privkey, Some(password.clone()))
-                .expect("Failed to read private key");
-            let pk = PublicKey::from_secret_key(&sk).expect("Failed to derive public key");
-            add_extension(&mut signature_file, keynum_to_string(&pk));
-        }
-        // Sign the file with the private key
-        assert!(sign_file(&testfile, &privkey, Some(password.clone())).is_ok());
-
-        // Verify the file with the public key
-        assert!(verify_file(&testfile, &pubkey).is_ok());
-
-        // Cleanup
-        assert!(remove_file(testfile).is_ok());
-        assert!(remove_file(signature_file).is_ok());
-        assert!(remove_file(pubkey).is_ok());
-        assert!(remove_file(privkey).is_ok());
-    }
-}

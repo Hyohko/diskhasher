@@ -70,6 +70,7 @@ pub fn gen_keypair(prefix: &str, password: Option<String>) -> Result<(), HasherE
 
 /// Hexencode a public key's keynum, correcting for endianness -
 /// output will be in Big Endian
+/// todo - validate on BE architecture - the keynum should be the same
 pub fn keynum_to_string(pk: &PublicKey) -> String {
     let outstr = match working() {
         Endian::Little => {
@@ -78,25 +79,26 @@ pub fn keynum_to_string(pk: &PublicKey) -> String {
             hex::encode(out)
         }
         Endian::Big => hex::encode(pk.keynum()),
-        _ => panic!("If it's not BigEndian or LittleEndian, you're out of luck"),
+        // cpu_endian provides a `Minor` type, so we have to acount for it in the match statement
+        Endian::Minor => panic!("Unsupported CPU architecture"),
     };
     outstr.to_uppercase()
 }
 
-/// Sign a hashfile using a private key in the MiniSign format.
+/// Sign a file using a private key in the MiniSign format.
 /// The signature file will be at the same path as the original file
 /// but will have the public key's ID number appended as an extension.
 pub fn sign_file(
-    hashfile_path: &String,
+    file_to_sign: &String,
     private_key: &String,
     password: Option<String>,
 ) -> Result<(), HasherError> {
-    info!("[+] Creating digital signature for {hashfile_path}");
-    let hashfile = canonicalize(Path::new(&hashfile_path))?;
-    if !hashfile.is_file() {
+    info!("[+] Creating digital signature for {file_to_sign}");
+    let filepath = canonicalize(Path::new(&file_to_sign))?;
+    if !filepath.is_file() {
         return Err(HasherError::File {
-            why: String::from("Hashfile Path is not a valid file"),
-            path: hashfile.display().to_string(),
+            why: String::from("'File to Sign' Path is not a valid file"),
+            path: filepath.display().to_string(),
         });
     }
 
@@ -120,26 +122,26 @@ pub fn sign_file(
         sigbox = minisign::sign(
             None,
             &sk,
-            File::open(&hashfile)?,
+            File::open(&filepath)?,
             trusted_comment.as_deref(),
             untrusted_comment.as_deref(),
         )?;
     }
 
     // Write signature to file
-    let mut sigfile: PathBuf = hashfile.clone();
+    let mut sigfile: PathBuf = filepath.clone();
     add_extension(&mut sigfile, keynum_to_string(&pk));
     info!("Writing signature file\n\t==> {:?}", sigfile);
     File::create(sigfile)?.write_all(sigbox.into_string().as_bytes())?;
 
     // Check signature to make sure nothing went sideways
-    validate_signature(&pk, &hashfile)
+    validate_signature(&pk, &filepath)
 }
 
-/// Internal function for validating a hashfile's corresponding
+/// Internal function for validating a file's corresponding
 /// signature file with a MiniSign public key
-fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherError> {
-    let mut sigfile: PathBuf = hashfile.clone();
+fn validate_signature(pk: &PublicKey, file_to_validate: &PathBuf) -> Result<(), HasherError> {
+    let mut sigfile: PathBuf = file_to_validate.clone();
     add_extension(&mut sigfile, keynum_to_string(pk));
     info!(
         "Loading signature file\n\t=> {}",
@@ -150,27 +152,27 @@ fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherEr
     Ok(minisign::verify(
         pk,
         &SignatureBox::from_file(&sigfile)?,
-        File::open(hashfile)?,
+        File::open(file_to_validate)?,
         false,
         false,
         false,
     )?)
 }
 
-/// Verify a hashfile using a public key in the MiniSign format.
+/// Verify a file's signature using a public key in the MiniSign format.
 /// The signature file *must* be at the same path as the original file
 /// and must have the public key's ID number appended as an extension.
-pub fn verify_file(hashfile_path: &String, public_key: &String) -> Result<(), HasherError> {
-    info!("[+] Validating digital signature of {hashfile_path}");
-    let hashfile = canonicalize(Path::new(hashfile_path))?;
-    if !hashfile.is_file() {
+pub fn verify_file(file_to_sign: &String, public_key: &String) -> Result<(), HasherError> {
+    info!("[+] Validating digital signature of {file_to_sign}");
+    let filepath = canonicalize(Path::new(file_to_sign))?;
+    if !filepath.is_file() {
         return Err(HasherError::File {
-            why: String::from("Hashfile Path is not a valid file"),
-            path: hashfile.display().to_string(),
+            why: String::from("'File to Sign' Path is not a valid file"),
+            path: filepath.display().to_string(),
         });
     }
 
     info!("Loading public key file => {public_key}");
     let pk: PublicKey = PublicKey::from_file(public_key)?;
-    validate_signature(&pk, &hashfile)
+    validate_signature(&pk, &filepath)
 }
