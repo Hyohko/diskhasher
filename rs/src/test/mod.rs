@@ -1,5 +1,5 @@
 /*
-    DKHASH - 2023 by Hyohko
+    DKHASH - 2025 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -364,3 +364,114 @@ mod hashtest {
         run_all_hashes(testfile);
     }
 }
+
+/*mod cli_test {
+    use crate::cli::parse_args;
+    use clap::ErrorKind;
+
+    #[test]
+    fn valid_arguments() {
+        let args = vec![
+            "diskhasher",
+            "--algorithm",
+            "md5",
+            "--input",
+            "testfile.txt",
+        ];
+        let matches = parse_args(args.iter());
+        assert!(matches.is_ok());
+        let matches = matches.unwrap();
+        assert_eq!(matches.value_of("algorithm").unwrap(), "md5");
+        assert_eq!(matches.value_of("input").unwrap(), "testfile.txt");
+    }
+
+    #[test]
+    fn missing_required_argument() {
+        let args = vec!["diskhasher", "--algorithm", "md5"];
+        let matches = parse_args(args.iter());
+        assert!(matches.is_err());
+        assert_eq!(matches.unwrap_err().kind, ErrorKind::MissingRequiredArgument);
+    }
+
+    #[test]
+    fn invalid_argument_value() {
+        let args = vec![
+            "diskhasher",
+            "--algorithm",
+            "invalid_alg",
+            "--input",
+            "testfile.txt",
+        ];
+        let matches = parse_args(args.iter());
+        assert!(matches.is_err());
+        assert_eq!(matches.unwrap_err().kind, ErrorKind::InvalidValue);
+    }
+
+    #[test]
+    fn help_flag() {
+        let args = vec!["diskhasher", "--help"];
+        let matches = parse_args(args.iter());
+        assert!(matches.is_err());
+        assert_eq!(matches.unwrap_err().kind, ErrorKind::DisplayHelp);
+    }
+
+    #[test]
+    fn version_flag() {
+        let args = vec!["diskhasher", "--version"];
+        let matches = parse_args(args.iter());
+        assert!(matches.is_err());
+        assert_eq!(matches.unwrap_err().kind, ErrorKind::DisplayVersion);
+    }
+}*/
+
+mod filesign_test {
+    use crate::filesigner::{gen_keypair, keynum_to_string, sign_file, verify_file};
+    use crate::util::add_extension;
+    use std::fs::{remove_file, File};
+    use std::path::PathBuf;
+    use minisign::{PublicKey, SecretKey};
+
+    // Write a test for key generation and usage  
+    #[test]
+    fn key_generation_and_usage() {
+        let testfile = "keygen_testfile.txt".to_string();
+        let key_prefix = "keygen_test";
+        let pubkey = format!("{key_prefix}.pub").to_string();
+        let privkey = format!("{key_prefix}.key").to_string();
+        // remove generated keys just in case. If they don't exist, ignore the error.
+        let _ = remove_file(&pubkey);
+        let _ = remove_file(&privkey);
+        let content = b"Test content for key generation";
+        let password = "password".to_string();
+
+        // Create test file
+        assert!(File::create(&testfile).is_ok());
+        assert!(std::fs::write(&testfile, content).is_ok());
+
+        // Generate keypair
+        let ret = gen_keypair(&key_prefix, Some(password.clone()));
+        assert!(ret.is_ok());
+
+        // Derive the expected signature extension
+        let mut signature_file: PathBuf = testfile.clone().into();
+        { // scope
+            let sk: SecretKey = SecretKey::from_file(&privkey, Some(password.clone()))
+                .expect("Failed to read private key");
+            let pk = PublicKey::from_secret_key(&sk)
+                .expect("Failed to derive public key");
+            add_extension(&mut signature_file, keynum_to_string(&pk));
+        }
+        // Sign the file with the private key
+        assert!(sign_file(&testfile, &privkey, Some(password.clone())).is_ok());
+
+        // Verify the file with the public key
+        assert!(verify_file(&testfile, &pubkey).is_ok());
+
+        // Cleanup
+        assert!(remove_file(testfile).is_ok());
+        assert!(remove_file(signature_file).is_ok());
+        assert!(remove_file(pubkey).is_ok());
+        assert!(remove_file(privkey).is_ok());
+    }
+}
+

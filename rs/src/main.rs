@@ -1,5 +1,5 @@
 /*
-    DKHASH - 2023 by Hyohko
+    DKHASH - 2025 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -79,7 +79,7 @@ fn main() {
                 return;
             }
         }
-        HashMode::SignFile(args) => match sign_file(args.path_string, args.keyfile) {
+        HashMode::SignFile(args) => match sign_file(&args.path_string, &args.keyfile, None) {
             Ok(()) => info!("[+] File signed successfully"),
             Err(err) => {
                 error!("[!] Failed to sign file");
@@ -87,7 +87,7 @@ fn main() {
                 return;
             }
         },
-        HashMode::VerifyFile(args) => match verify_file(args.path_string, args.keyfile) {
+        HashMode::VerifyFile(args) => match verify_file(&args.path_string, &args.keyfile) {
             Ok(()) => info!("[+] Signature is valid"),
             Err(err) => {
                 error!("[!] Signature failed to validate");
@@ -96,7 +96,8 @@ fn main() {
             }
         },
         HashMode::GenKeyPair(args) => {
-            if let Err(err) = gen_keypair(&args.keyfile) {
+            // Always prompt the user for a password (hence, the None argument)
+            if let Err(err) = gen_keypair(&args.keyfile, None) {
                 error!("[!] Runtime: {err}");
                 return;
             }

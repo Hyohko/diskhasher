@@ -1,5 +1,5 @@
 /*
-    DKHASH - 2023 by Hyohko
+    DKHASH - 2025 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -39,7 +39,7 @@ use {
 
 /// Generate a MiniSign Ed22519 Public/Private keypair and save them to disk
 /// using the prefix argument to name the files.
-pub fn gen_keypair(prefix: &str) -> Result<(), HasherError> {
+pub fn gen_keypair(prefix: &str, password: Option<String>) -> Result<(), HasherError> {
     let paths = [format!("./{prefix}.pub"), format!("./{prefix}.key")];
     for st in paths.iter() {
         if Path::new(&st).exists() {
@@ -62,7 +62,7 @@ pub fn gen_keypair(prefix: &str) -> Result<(), HasherError> {
         File::create(&paths[0])?,
         File::create(&paths[1])?,
         comment.as_deref(),
-        None, // always prompt
+        password, // if None, no password
     )
     .expect("Key generation is supposed to be infalliable, but we have an error for some reason");
     Ok(())
@@ -70,7 +70,7 @@ pub fn gen_keypair(prefix: &str) -> Result<(), HasherError> {
 
 /// Hexencode a public key's keynum, correcting for endianness -
 /// output will be in Big Endian
-fn keynum_to_string(pk: &PublicKey) -> String {
+pub fn keynum_to_string(pk: &PublicKey) -> String {
     let outstr = match working() {
         Endian::Little => {
             let mut out = pk.keynum().to_vec();
@@ -86,7 +86,7 @@ fn keynum_to_string(pk: &PublicKey) -> String {
 /// Sign a hashfile using a private key in the MiniSign format.
 /// The signature file will be at the same path as the original file
 /// but will have the public key's ID number appended as an extension.
-pub fn sign_file(hashfile_path: String, private_key: String) -> Result<(), HasherError> {
+pub fn sign_file(hashfile_path: &String, private_key: &String, password: Option<String>) -> Result<(), HasherError> {
     info!("[+] Creating digital signature for {hashfile_path}");
     let hashfile = canonicalize(Path::new(&hashfile_path))?;
     if !hashfile.is_file() {
@@ -101,7 +101,7 @@ pub fn sign_file(hashfile_path: String, private_key: String) -> Result<(), Hashe
     {
         // scope to drop SecretKey as soon as it is no longer needed
         info!("Loading private key file => {private_key}");
-        let sk: SecretKey = SecretKey::from_file(private_key, None)?;
+        let sk: SecretKey = SecretKey::from_file(private_key, password)?;
         info!("Deriving public key from private key");
         pk = PublicKey::from_secret_key(&sk)?;
         let untrusted_comment = Some("Signed by DKHASH".to_string());
@@ -153,9 +153,9 @@ fn validate_signature(pk: &PublicKey, hashfile: &PathBuf) -> Result<(), HasherEr
 /// Verify a hashfile using a public key in the MiniSign format.
 /// The signature file *must* be at the same path as the original file
 /// and must have the public key's ID number appended as an extension.
-pub fn verify_file(hashfile_path: String, public_key: String) -> Result<(), HasherError> {
+pub fn verify_file(hashfile_path: &String, public_key: &String) -> Result<(), HasherError> {
     info!("[+] Validating digital signature of {hashfile_path}");
-    let hashfile = canonicalize(Path::new(&hashfile_path))?;
+    let hashfile = canonicalize(Path::new(hashfile_path))?;
     if !hashfile.is_file() {
         return Err(HasherError::File {
             why: String::from("Hashfile Path is not a valid file"),

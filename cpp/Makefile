@@ -1,4 +1,4 @@
-# DKHASH - 2023 by Hyohko
+# DKHASH - 2025 by Hyohko
 
 ##################################
 #   GPLv3 NOTICE AND DISCLAIMER
