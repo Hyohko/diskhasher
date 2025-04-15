@@ -1,5 +1,5 @@
 /*
-    DKHASH - 2023 by Hyohko
+    DKHASH - 2025 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -24,7 +24,7 @@
     <https://www.gnu.org/licenses/>.
 */
 
-use clap::{builder::PossibleValue, ValueEnum};
+use clap::{ValueEnum, builder::PossibleValue};
 
 /// Supported hash algorithms
 //#[non_exhaustive]

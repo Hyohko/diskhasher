@@ -1,5 +1,5 @@
 /*
-    DKHASH - 2023 by Hyohko
+    DKHASH - 2025 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -26,9 +26,9 @@
 use crate::enums::{FileSortLogic, HashAlg};
 
 use clap::{
-    command,
+    Arg, ArgAction, ArgMatches, Command, FromArgMatches, command,
     error::{Error, ErrorKind},
-    value_parser, Arg, ArgAction, ArgMatches, Command, FromArgMatches,
+    value_parser,
 };
 
 /// Various modes of operation for DKHASH - hash whole directories,
@@ -202,16 +202,14 @@ impl FromArgMatches for Arguments {
 
 fn dir_subcommand(alg_arg: &Arg) -> Command {
     #[cfg(target_os = "linux")]
-    let sorting_long_help =
-        "[Optional] Depending on the size of the files in the directory, the user \
+    let sorting_long_help = "[Optional] Depending on the size of the files in the directory, the user \
     may want to see the largest files sorted first or the smallest. \
     \n[Linux only] Inode-order hashing is the default method (ostensibly) for disk \
     I/O speed especially on HDD drives to avoid thrashing the read/write \
     heads above the platters";
 
     #[cfg(target_os = "windows")]
-    let sorting_long_help =
-        "[Optional] Depending on the size of the files in the directory, the user \
+    let sorting_long_help = "[Optional] Depending on the size of the files in the directory, the user \
     may want to see the largest files sorted first or the smallest. \
     \n[Windows only] File sorting defaults to largest file first.";
 

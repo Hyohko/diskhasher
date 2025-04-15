@@ -1,5 +1,5 @@
 /*
-    DKHASH - 2023 by Hyohko
+    DKHASH - 2025 by Hyohko
 
     ##################################
     GPLv3 NOTICE AND DISCLAIMER
@@ -45,7 +45,7 @@ extern crate log;
 
 // The only exportable functionality we expose to any main function
 pub use crate::{
-    cli::{parse_cli, Arguments, HashMode},
+    cli::{Arguments, HashMode, parse_cli},
     filesigner::{gen_keypair, sign_file, verify_file},
     hasher::DirHasher,
     threadfunc::hash_single_file,
