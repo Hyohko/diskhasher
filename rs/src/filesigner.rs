@@ -86,7 +86,11 @@ pub fn keynum_to_string(pk: &PublicKey) -> String {
 /// Sign a hashfile using a private key in the MiniSign format.
 /// The signature file will be at the same path as the original file
 /// but will have the public key's ID number appended as an extension.
-pub fn sign_file(hashfile_path: &String, private_key: &String, password: Option<String>) -> Result<(), HasherError> {
+pub fn sign_file(
+    hashfile_path: &String,
+    private_key: &String,
+    password: Option<String>,
+) -> Result<(), HasherError> {
     info!("[+] Creating digital signature for {hashfile_path}");
     let hashfile = canonicalize(Path::new(&hashfile_path))?;
     if !hashfile.is_file() {

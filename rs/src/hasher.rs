@@ -54,7 +54,7 @@ use {
 // way to make it idiomatic Rust b/c we want to propagate
 // any errors from File::create
 macro_rules! opt_open_file {
-    ($logmsg:expr, $opt_filename:expr) => {
+    ($logmsg:expr_2021, $opt_filename:expr_2021) => {
         match $opt_filename {
             Some(v) => {
                 info!("[+] {} -> {v}", $logmsg);

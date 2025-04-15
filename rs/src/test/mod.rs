@@ -431,11 +431,11 @@ mod hashtest {
 mod filesign_test {
     use crate::filesigner::{gen_keypair, keynum_to_string, sign_file, verify_file};
     use crate::util::add_extension;
-    use std::fs::{remove_file, File};
-    use std::path::PathBuf;
     use minisign::{PublicKey, SecretKey};
+    use std::fs::{File, remove_file};
+    use std::path::PathBuf;
 
-    // Write a test for key generation and usage  
+    // Write a test for key generation and usage
     #[test]
     fn key_generation_and_usage() {
         let testfile = "keygen_testfile.txt".to_string();
@@ -458,11 +458,11 @@ mod filesign_test {
 
         // Derive the expected signature extension
         let mut signature_file: PathBuf = testfile.clone().into();
-        { // scope
+        {
+            // scope
             let sk: SecretKey = SecretKey::from_file(&privkey, Some(password.clone()))
                 .expect("Failed to read private key");
-            let pk = PublicKey::from_secret_key(&sk)
-                .expect("Failed to derive public key");
+            let pk = PublicKey::from_secret_key(&sk).expect("Failed to derive public key");
             add_extension(&mut signature_file, keynum_to_string(&pk));
         }
         // Sign the file with the private key
@@ -478,4 +478,3 @@ mod filesign_test {
         assert!(remove_file(privkey).is_ok());
     }
 }
-

@@ -46,7 +46,7 @@
 #[doc(hidden)]
 #[macro_export]
 macro_rules! hashobj {
-    ($alg:expr) => {
+    ($alg:expr_2021) => {
         match $alg {
             HashAlg::MD5 => Box::<digest::core_api::CoreWrapper<md5::Md5Core>>::default(),
             HashAlg::SHA1 => Box::<digest::core_api::CoreWrapper<sha1::Sha1Core>>::default(),
@@ -180,7 +180,7 @@ macro_rules! hashobj {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! hashobj_slow {
-    ($alg:expr) => {
+    ($alg:expr_2021) => {
         match $alg {
             HashAlg::MD5 => Box::new(md5::Md5::default()),
             HashAlg::SHA1 => Box::new(sha1::Sha1::default()),
@@ -202,7 +202,7 @@ macro_rules! hashobj_slow {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! known_zero_hash {
-    ($alg:expr) => {
+    ($alg:expr_2021) => {
         match $alg {
             HashAlg::MD5 => String::from("d41d8cd98f00b204e9800998ecf8427e"),
             HashAlg::SHA1 => String::from("da39a3ee5e6b4b0d3255bfef95601890afd80709"),
@@ -222,7 +222,7 @@ macro_rules! known_zero_hash {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! filelog {
-    ($msg:expr, $filehandleopt:expr) => {
+    ($msg:expr_2021, $filehandleopt:expr_2021) => {
         if let Some(handle) = $filehandleopt {
             let mut guarded_filehandle = handle.lock().expect("Mutex unlock failure - Panic!");
             (*guarded_filehandle).write_all($msg.as_bytes()).ok();

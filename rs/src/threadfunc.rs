@@ -67,7 +67,7 @@ pub(crate) struct ThreadFuncArgs {
 }
 
 macro_rules! read_all_into_hasher {
-    ($fd:expr, $hash:expr) => {
+    ($fd:expr_2021, $hash:expr_2021) => {
         #[cfg(target_os = "windows")]
         let mut buf = vec![0_u8; SIZE_2MB].into_boxed_slice();
         #[cfg(target_os = "linux")]
