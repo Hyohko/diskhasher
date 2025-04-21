@@ -26,27 +26,22 @@
 
 use {
     crate::error::HasherError,
-    chrono::{DateTime, Utc},
     regex::Regex,
     std::{
         fs::canonicalize,
         path::{Path, PathBuf},
-        time::SystemTime,
     },
 };
 
-/// Stitch an extra extension on to the end of a path - add a leading dot before
-/// the new extension. E.g. add_extension("myfile.txt", "new") -> "myfile.txt.new"
-pub(crate) fn add_extension(path: &mut std::path::PathBuf, extension: impl AsRef<std::path::Path>) {
-    match path.extension() {
-        Some(ext) => {
-            let mut ext = ext.to_os_string();
-            ext.push(".");
-            ext.push(extension.as_ref());
-            path.set_extension(ext)
-        }
-        None => path.set_extension(extension.as_ref()),
+/// Stitch an extra extension onto the end of a path.
+/// Adds a leading dot before the new extension.
+/// E.g., add_extension("myfile.txt", "new") -> "myfile.txt.new"
+pub(crate) fn add_extension(path: &mut PathBuf, extension: &str) {
+    let new_ext = match path.extension() {
+        Some(ext) => format!("{}.{}", ext.to_string_lossy(), extension),
+        None => extension.to_string(),
     };
+    path.set_extension(new_ext);
 }
 
 /// Canonicalizes a file path, checking to see that the file exists and returns
@@ -71,33 +66,13 @@ pub(crate) fn canonicalize_filepath(
     }
 }
 
-/// Retrieves the current system time and outputs it in RFC 3339 format,
-/// always as a UTC (+00:00 or Zulu) timestamp, to the nanosecond where possible
-/// e.g. %YYYY-%MM-%DDThh:mm:ss.sssssssss+00:00
-pub(crate) fn current_timestamp_as_string() -> String {
-    let now = SystemTime::now();
-    let now: DateTime<Utc> = now.into();
-    now.to_rfc3339()
-}
-
 /// Validates that at least the file name portion of a file path matches
 /// the given regular expression.
 pub(crate) fn path_matches_regex(hash_regex: &Regex, file_path: &Path) -> bool {
-    file_path.file_name().map_or_else(
-        || {
-            error!("[-] Failed to retrieve file name from path object");
-            false
-        },
-        |path| {
-            path.to_str().map_or_else(
-                || {
-                    error!("[-] Failed to convert path to string");
-                    false
-                },
-                |str_path| hash_regex.is_match(str_path),
-            )
-        },
-    )
+    file_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map_or(false, |str_path| hash_regex.is_match(str_path))
 }
 
 /// Takes a line from a hashfile in the format "<hash hexstring> <path to file>",
@@ -117,23 +92,23 @@ pub(crate) fn split_hashfile_line(
 }
 
 /// Returns Ok(()) if hexstring is a supported length - i.e. matches
-/// the output of one of the algorithms we support
+/// the output of one of the algorithms we support.
 pub(crate) fn validate_hexstring(hexstring: &str) -> Result<(), HasherError> {
-    match hexstring.len() {
-        32 | 40 | 56 | 64 | 96 | 128 => {
-            for chr in hexstring.chars() {
-                if !chr.is_ascii_hexdigit() {
-                    return Err(HasherError::Parse {
-                        why: String::from("Non-hex character found"),
-                    });
-                }
-            }
-            Ok(())
-        }
-        _ => Err(HasherError::Parse {
+    const VALID_LENGTHS: [usize; 6] = [32, 40, 56, 64, 96, 128];
+
+    if !VALID_LENGTHS.contains(&hexstring.len()) {
+        return Err(HasherError::Parse {
             why: format!("Bad hexstring length: {}", hexstring.len()),
-        }),
+        });
     }
+
+    if !hexstring.chars().all(|chr| chr.is_ascii_hexdigit()) {
+        return Err(HasherError::Parse {
+            why: String::from("Non-hex character found"),
+        });
+    }
+
+    Ok(())
 }
 
 /*use lazy_static::lazy_static;

@@ -402,7 +402,7 @@ mod filesign_test {
             let sk = minisign::SecretKey::from_file(&privkey, Some(password.to_string()))
                 .expect("Failed to read private key");
             let pk = minisign::PublicKey::from_secret_key(&sk).expect("Failed to derive public key");
-            add_extension(&mut signature_file, keynum_to_string(&pk));
+            add_extension(&mut signature_file, &keynum_to_string(&pk));
         }
 
         // Sign and verify file

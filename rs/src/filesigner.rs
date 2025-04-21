@@ -25,8 +25,9 @@
 */
 use {
     crate::{
+        current_timestamp_as_string,
         error::HasherError,
-        util::{add_extension, current_timestamp_as_string},
+        util::{add_extension},
     },
     cpu_endian::{Endian, working},
     minisign::{KeyPair, PublicKey, SecretKey, SignatureBox},
@@ -56,7 +57,7 @@ pub fn gen_keypair(prefix: &str, password: Option<String>) -> Result<(), HasherE
 
     let comment = Some(format!(
         "DKHASH Keyfile Created => {}",
-        current_timestamp_as_string()
+        current_timestamp_as_string!()
     ));
     KeyPair::generate_and_write_encrypted_keypair(
         File::create(&paths[0])?,
@@ -117,7 +118,7 @@ pub fn sign_file(
         let trusted_comment = Some(format!(
             "Key ID => {} ||| Signature Time/Date (UTC) => {}",
             keynum_to_string(&pk),
-            current_timestamp_as_string()
+            current_timestamp_as_string!()
         ));
         sigbox = minisign::sign(
             None,
@@ -130,7 +131,7 @@ pub fn sign_file(
 
     // Write signature to file
     let mut sigfile: PathBuf = filepath.clone();
-    add_extension(&mut sigfile, keynum_to_string(&pk));
+    add_extension(&mut sigfile, &keynum_to_string(&pk));
     info!("Writing signature file\n\t==> {:?}", sigfile);
     File::create(sigfile)?.write_all(sigbox.into_string().as_bytes())?;
 
@@ -142,7 +143,7 @@ pub fn sign_file(
 /// signature file with a MiniSign public key
 fn validate_signature(pk: &PublicKey, file_to_validate: &PathBuf) -> Result<(), HasherError> {
     let mut sigfile: PathBuf = file_to_validate.clone();
-    add_extension(&mut sigfile, keynum_to_string(pk));
+    add_extension(&mut sigfile, &keynum_to_string(pk));
     info!(
         "Loading signature file\n\t=> {}",
         sigfile.display().to_string()
