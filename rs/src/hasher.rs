@@ -94,25 +94,9 @@ impl DirHasher {
         jobs: Option<u64>,
         gen_hashfile: Option<String>,
     ) -> Result<Self, HasherError> {
-        let hash_regex: Regex;
-        if let Some(pattern) = hashfile_pattern {
-            if gen_hashfile.is_some() {
-                return Err(HasherError::Argument {
-                    why: String::from(
-                        "Args hashfile pattern (-f) and generate hashfile (-g) are mutually exclusive",
-                    ),
-                });
-            }
-            hash_regex = Regex::new(&pattern).map_err(|err| HasherError::Regex {
-                why: format!("'{pattern}' returns error {err}"),
-            })?;
-        } else {
-            // This is the "match nothing" regex
-            hash_regex = Regex::new(".^")
-                .expect("This regex ('.^') should never fail unless alloc error occurred");
-        }
+        let hash_regex = Self::build_hash_regex(&hashfile_pattern, &gen_hashfile)?;
 
-        let root = canonicalize(Path::new(&root_dir))?;
+        let root = canonicalize(Path::new(root_dir))?;
         if !root.is_dir() {
             return Err(HasherError::File {
                 why: String::from("Path is not a valid directory"),
@@ -120,35 +104,9 @@ impl DirHasher {
             });
         }
 
-        let mut avail_threads: u64 = available_parallelism()
-            .map_err(|err| HasherError::Threading {
-                why: format!("{err}: Couldn't get number of available threads"),
-            })?
-            .get()
-            .try_into()
-            .expect("Failed to cast usize to u64, unrecoverable");
-
-        avail_threads = if let Some(total_threads) = jobs {
-            if total_threads > avail_threads {
-                warn!("[!] Only {avail_threads} threads available");
-                avail_threads
-            } else {
-                info!("[+] Allocating {total_threads} worker threads in the thread pool");
-                total_threads
-            }
-        } else {
-            // cap total running threads at the num of cores or 12 threads (which is plenty),
-            // whatever is smaller. Much larger than this and it screws
-            // up the progress bar rendering, though we still let the user shoot their
-            // own feet in the if let above.
-            avail_threads = std::cmp::min(avail_threads, 12);
-            info!("[+] Defaulting to {avail_threads} worker threads, use '--jobs' arg to change");
-            avail_threads
-        };
-
+        let avail_threads = Self::determine_thread_count(jobs)?;
         let loghandle = opt_open_file!("Logging hash results", logfile);
-        let genhash_path =
-            gen_hashfile.map_or_else(|| None, |v| Some(root.join(v).display().to_string()));
+        let genhash_path = gen_hashfile.map(|v| root.join(v).display().to_string());
         let genhash_handle = opt_open_file!("Generating hashfile", genhash_path);
 
         let mp = MultiProgress::new();
@@ -166,6 +124,53 @@ impl DirHasher {
             mp,
             genhash_handle,
         })
+    }
+
+    /// Build the hash regex, ensuring mutual exclusivity with `gen_hashfile`.
+    fn build_hash_regex(
+        hashfile_pattern: &Option<String>,
+        gen_hashfile: &Option<String>,
+    ) -> Result<Regex, HasherError> {
+        if let Some(pattern) = hashfile_pattern {
+            if gen_hashfile.is_some() {
+                return Err(HasherError::Argument {
+                    why: String::from(
+                        "Args hashfile pattern (-f) and generate hashfile (-g) are mutually exclusive",
+                    ),
+                });
+            }
+            Regex::new(pattern).map_err(|err| HasherError::Regex {
+                why: format!("'{pattern}' returns error {err}"),
+            })
+        } else {
+            // Match nothing regex
+            Ok(Regex::new(".^").expect("This regex ('.^') should never fail unless alloc error occurred"))
+        }
+    }
+
+    /// Determine the number of threads to use based on available cores and user input.
+    fn determine_thread_count(jobs: Option<u64>) -> Result<u64, HasherError> {
+        let mut avail_threads: u64 = available_parallelism()
+            .map_err(|err| HasherError::Threading {
+                why: format!("{err}: Couldn't get number of available threads"),
+            })?
+            .get()
+            .try_into()
+            .expect("Failed to cast usize to u64, unrecoverable");
+
+        if let Some(total_threads) = jobs {
+            if total_threads > avail_threads {
+                warn!("[!] Only {avail_threads} threads available");
+                Ok(avail_threads)
+            } else {
+                info!("[+] Allocating {total_threads} worker threads in the thread pool");
+                Ok(total_threads)
+            }
+        } else {
+            avail_threads = std::cmp::min(avail_threads, 12);
+            info!("[+] Defaulting to {avail_threads} worker threads, use '--jobs' arg to change");
+            Ok(avail_threads)
+        }
     }
 
     /// Once the Hasher object is constructed, we can then begin computation.
@@ -237,11 +242,10 @@ impl DirHasher {
         }
     }
 
-    /// Generate a standard spinner for pending jobs with an indeterminate end
+    /// Generate a standard spinner for pending jobs with an indeterminate end.
     fn create_spinner(&self, msg: String) -> Result<ProgressBar, HasherError> {
-        let spinner_style =
-            ProgressStyle::with_template("[{spinner:.cyan.bold}] (# {pos:.green}) {wide_msg}")?
-                .tick_chars("/|\\- ");
+        let spinner_style = ProgressStyle::with_template("[{spinner:.cyan.bold}] (# {pos:.green}) {wide_msg}")?
+            .tick_chars("/|\\- ");
         let spinner = self.mp.add(
             ProgressBar::new_spinner()
                 .with_style(spinner_style)
@@ -292,22 +296,20 @@ impl DirHasher {
         Ok(file_vec)
     }
 
-    /// Sort files by size or inode-order (Linux only)
+    /// Sort files by size or inode-order (Linux only).
     fn sort_checked_files(&mut self, sort_order: FileSortLogic) {
-        // since we are popping off the last element of the vec to process it, in the instance
+// since we are popping off the last element of the vec to process it, in the instance
         // of Largest-First hashing, the largest needs to be at the end of the vec, and
         // vice versa for smallest.
         match sort_order {
             #[cfg(target_os = "linux")]
             FileSortLogic::InodeOrder => {
                 info!("[*] Sorting files by inode");
-                self.checkedfiles
-                    .sort_unstable_by_key(|a| Reverse(a.inode()));
+                self.checkedfiles.sort_unstable_by_key(|a| Reverse(a.inode()));
             }
             FileSortLogic::SmallestFirst => {
                 info!("[*] Sorting files by size, smallest first");
-                self.checkedfiles
-                    .sort_unstable_by_key(|a| Reverse(a.size()));
+                self.checkedfiles.sort_unstable_by_key(|a| Reverse(a.size()));
             }
             FileSortLogic::LargestFirst => {
                 info!("[*] Sorting files by size, largest first");
@@ -316,7 +318,7 @@ impl DirHasher {
         }
     }
 
-    /// Assign a single hash job to one of the threads in our threadpool
+    /// Spawn a single hash job for a file.
     fn spawn_single_job(
         &mut self,
         mut file_data: FileData,
@@ -324,7 +326,6 @@ impl DirHasher {
         force: bool,
         verbose: bool,
     ) {
-        //let mut fd_clone = file_data.clone();
         if let Some(mut v) = self.hashmap.remove(file_data.path()) {
             file_data.set_hash(&mut v);
         } else if !force {
@@ -335,7 +336,7 @@ impl DirHasher {
         let gen_hashfile_dir = self
             .genhash_handle
             .as_ref()
-            .map_or_else(|| None, |_v| Some(self.root.clone()));
+            .map(|_| self.root.clone());
         let moved_args = ThreadFuncArgs {
             fdata: file_data,
             alg: self.alg,
@@ -347,7 +348,6 @@ impl DirHasher {
             gen_hashfile: self.genhash_handle.clone(),
             gen_hashfile_dir,
         };
-        // after this point, avoid more stdout/stderr prints
         self.pool.execute(move || {
             perform_hash_threadfunc(moved_args).ok();
         });

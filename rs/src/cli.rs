@@ -76,23 +76,27 @@ pub struct Arguments {
     pub keyfile: String,
 }
 
+const fn sorting_default() -> FileSortLogic {
+    #[cfg(target_os = "windows")]
+    {
+        FileSortLogic::LargestFirst
+    }
+    #[cfg(target_os = "linux")]
+    {
+        FileSortLogic::InodeOrder
+    }
+}
+
 impl FromArgMatches for Arguments {
     fn from_arg_matches(matches: &ArgMatches) -> Result<Self, clap::error::Error> {
         if let Some(matches) = matches.subcommand_matches("dir") {
-            let sorting = matches.get_one::<FileSortLogic>("sorting").map_or(
-                #[cfg(target_os = "windows")]
-                FileSortLogic::LargestFirst,
-                #[cfg(target_os = "linux")]
-                FileSortLogic::InodeOrder,
-                |v| *v,
-            );
             Ok(Self {
                 path_string: matches.get_one::<String>("directory").unwrap().to_string(),
                 algorithm: *matches.get_one::<HashAlg>("algorithm").unwrap(),
                 pattern: matches.get_one::<String>("pattern").cloned(),
                 force: matches.get_flag("force"),
                 verbose: matches.get_flag("verbose"),
-                sorting,
+                sorting: matches.get_one::<FileSortLogic>("sorting").copied().unwrap_or_else(sorting_default),
                 logfile: matches.get_one::<String>("logfile").cloned(),
                 jobs: matches.get_one::<u64>("jobs").copied(),
                 generate_hashfile: matches.get_one::<String>("generate_hashfile").cloned(),
@@ -105,7 +109,7 @@ impl FromArgMatches for Arguments {
                 pattern: None,
                 force: true,
                 verbose: true,
-                sorting: FileSortLogic::SmallestFirst, //unused
+                sorting: FileSortLogic::SmallestFirst, // unused
                 logfile: None,
                 jobs: None,
                 generate_hashfile: None,
@@ -114,27 +118,24 @@ impl FromArgMatches for Arguments {
         } else if let Some(matches) = matches.subcommand_matches("sign") {
             Ok(Self {
                 path_string: matches.get_one::<String>("filepath").unwrap().to_string(),
-                algorithm: HashAlg::MD5, //Ignored
+                algorithm: HashAlg::MD5, // Ignored
                 pattern: None,
                 force: true,
                 verbose: true,
-                sorting: FileSortLogic::SmallestFirst, //unused
+                sorting: FileSortLogic::SmallestFirst, // unused
                 logfile: None,
                 jobs: None,
                 generate_hashfile: None,
-                keyfile: matches
-                    .get_one::<String>("private_key")
-                    .unwrap()
-                    .to_string(),
+                keyfile: matches.get_one::<String>("private_key").unwrap().to_string(),
             })
         } else if let Some(matches) = matches.subcommand_matches("verify") {
             Ok(Self {
                 path_string: matches.get_one::<String>("filepath").unwrap().to_string(),
-                algorithm: HashAlg::MD5, //Ignored
+                algorithm: HashAlg::MD5, // Ignored
                 pattern: None,
                 force: true,
                 verbose: true,
-                sorting: FileSortLogic::SmallestFirst, //unused
+                sorting: FileSortLogic::SmallestFirst, // unused
                 logfile: None,
                 jobs: None,
                 generate_hashfile: None,
@@ -143,11 +144,11 @@ impl FromArgMatches for Arguments {
         } else if let Some(matches) = matches.subcommand_matches("genkey") {
             Ok(Self {
                 path_string: "".to_string(),
-                algorithm: HashAlg::MD5, //Ignored
+                algorithm: HashAlg::MD5, // Ignored
                 pattern: None,
                 force: true,
                 verbose: true,
-                sorting: FileSortLogic::SmallestFirst, //unused
+                sorting: FileSortLogic::SmallestFirst, // unused
                 logfile: None,
                 jobs: None,
                 generate_hashfile: None,
@@ -165,13 +166,7 @@ impl FromArgMatches for Arguments {
             self.pattern = matches.get_one::<String>("pattern").cloned();
             self.force = matches.get_flag("force");
             self.verbose = matches.get_flag("verbose");
-            self.sorting = matches.get_one::<FileSortLogic>("sorting").map_or(
-                #[cfg(target_os = "windows")]
-                FileSortLogic::LargestFirst,
-                #[cfg(target_os = "linux")]
-                FileSortLogic::InodeOrder,
-                |v| *v,
-            );
+            self.sorting = matches.get_one::<FileSortLogic>("sorting").copied().unwrap_or_else(sorting_default);
             self.logfile = matches.get_one::<String>("logfile").cloned();
             self.jobs = matches.get_one::<u64>("jobs").copied();
             self.generate_hashfile = matches.get_one::<String>("generate_hashfile").cloned();
@@ -182,14 +177,11 @@ impl FromArgMatches for Arguments {
             Ok(())
         } else if let Some(matches) = matches.subcommand_matches("sign") {
             self.path_string = matches.get_one::<String>("filepath").unwrap().to_string();
-            self.keyfile = matches.get_one::<String>("public_key").unwrap().to_string();
+            self.keyfile = matches.get_one::<String>("private_key").unwrap().to_string();
             Ok(())
         } else if let Some(matches) = matches.subcommand_matches("verify") {
             self.path_string = matches.get_one::<String>("filepath").unwrap().to_string();
-            self.keyfile = matches
-                .get_one::<String>("private_key")
-                .unwrap()
-                .to_string();
+            self.keyfile = matches.get_one::<String>("public_key").unwrap().to_string();
             Ok(())
         } else if let Some(matches) = matches.subcommand_matches("genkey") {
             self.keyfile = matches.get_one::<String>("prefix").unwrap().to_string();
@@ -446,27 +438,12 @@ pub fn parse_cli() -> Result<HashMode, clap::error::Error> {
         .subcommand(genkey_subcommand())
         .max_term_width(80)
         .get_matches();
+
     let matches: Arguments = Arguments::from_arg_matches(&args)?;
 
     #[cfg(target_os = "windows")]
     {
-        // This is an odd Windows/Clap quirk - if the path we are hashing contains
-        // a space, Windows has to encapsulate the path in a quoted string.
-        // Sometimes when tab-completing paths, Windows will insert a terminal backslash
-        // before the end quote mark. This confuses Clap's parser, which - if the path
-        // terminates in a backslash - will insert a double-quote ('"') at the
-        // end of the string [but not at the front.... :( ], which we must then
-        // handle or else fs::Path will consume it and return OS Error 123
-        // (Volume or Label Syntax Not Correct)
-        // Here, we inform the user and quit immediately.
-        // TODO - either tell Clap or fix it ourselves, but for now yell at the user
-        // and make them fix it.
-        if matches
-            .path_string
-            .chars()
-            .nth(matches.path_string.len() - 1)
-            == Some('"')
-        {
+        if matches.path_string.ends_with('"') {
             error!("[*] Remove the terminal '\\' from the path");
             error!(
                 "[!] Re-run with path ==>\n\t'{}'",
