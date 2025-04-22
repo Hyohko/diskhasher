@@ -110,234 +110,194 @@ void print_usage()
     std::cout << usage << std::endl;
 }
 
-std::string &ltrim(std::string &s)
-{
-    auto it = std::find_if(s.begin(), s.end(),
-                           [](char c)
-                           {
-                               return !std::isspace<char>(c, std::locale::classic());
-                           });
-    s.erase(s.begin(), it);
+/**
+ * @brief Trim leading whitespace from a string.
+ * @param s The string to trim.
+ * @return Reference to the trimmed string.
+ */
+std::string &ltrim(std::string &s) {
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](char c) {
+        return !std::isspace<char>(c, std::locale::classic());
+    }));
     return s;
 }
 
 /**
  * @brief Parse a checksum file / hashfile, split each line containing a cryptographic
- * checksum and a relative path to a file
- * @param filepath Absolute path to the checksum file
- * @return Vector of path / hash pairs contained in this checksum file
+ * checksum and a relative path to a file.
+ * @param filepath Absolute path to the checksum file.
+ * @return Vector of path / hash pairs contained in this checksum file.
  */
-std::vector<pathstruct> parse_hashfile(const fs::path &filepath)
-{
+std::vector<pathstruct> parse_hashfile(const fs::path &filepath) {
     spdlog::info("[+] Parsing hashfile {}", filepath.string());
     std::ifstream infile(filepath);
     std::vector<pathstruct> hashlist;
-    std::string line;
+    std::string line, hash, filename;
     size_t count = 0;
 
-    std::string hash, filename;
-    filename.reserve(512);
-    hash.reserve(512);
-    while (std::getline(infile, line))
-    {
+    while (std::getline(infile, line)) {
         std::istringstream iss(line);
-        if (!(iss >> hash))
-        {
+        if (!(iss >> hash)) {
             spdlog::error("[-] Could not parse line");
-            break;
-        } // error
+            continue;
+        }
 
         std::getline(iss, filename);
         ltrim(filename);
 
-        if (filename.rfind("./", 0) == 0)
-        {
+        if (filename.starts_with("./")) {
             filename.erase(0, 2);
         }
+
         fs::path target = filepath.parent_path() / filename;
-        if (!fs::exists(target))
-        {
+        if (!fs::exists(target)) {
             spdlog::error("[!] File {} does not exist on disk", target.string());
-        }
-        else
-        {
+        } else {
             hashlist.emplace_back(target, hash);
         }
-        count++;
-        if (count % 500 == 0)
-        {
+
+        if (++count % 500 == 0) {
             spdlog::info("[*] {} hashes parsed", count);
         }
-        if (s_ctrl_c)
-        {
+
+        if (s_ctrl_c) {
             break;
         }
     }
+
     spdlog::info("[*] Total: {} hashes parsed", count);
-    infile.close();
     return hashlist;
 }
 
 /**
- * @brief Recursively walk the given directory
- * @param root_dir Root directory
- * @return Vector of absolute paths to every regular file in this directory
- * @note Will not traverse symlinks
+ * @brief Recursively walk the given directory.
+ * @param root_dir Root directory.
+ * @return Vector of absolute paths to every regular file in this directory.
+ * @note Will not traverse symlinks.
  */
-pathvector recursive_dirwalk(const fs::path &root_dir)
-{
+pathvector recursive_dirwalk(const fs::path &root_dir) {
     pathvector all_files;
     size_t count = 0;
-    for (auto &itEntry : fs::recursive_directory_iterator(root_dir))
-    {
-        try
-        {
-            if (itEntry.is_regular_file())
-            {
-                all_files.emplace_back(itEntry.path());
+
+    for (const auto &entry : fs::recursive_directory_iterator(root_dir)) {
+        try {
+            if (entry.is_regular_file()) {
+                all_files.emplace_back(entry.path());
             }
+        } catch (const fs::filesystem_error &e) {
+            spdlog::error("[-] ({}) '{}' is not a regular file", e.what(), entry.path().string());
         }
-        catch (fs::filesystem_error const &e)
-        {
-            spdlog::error("[-] ({}) '{}' is not a regular file", e.what(), itEntry.path().string());
-        }
-        count++;
-        if (count % 500 == 0)
-        {
+
+        if (++count % 500 == 0) {
             spdlog::debug("[*] {} directory items enumerated", count);
         }
-        if (s_ctrl_c)
-        {
+
+        if (s_ctrl_c) {
             break;
         }
     }
+
     spdlog::debug("[*] Total: {} directory items enumerated", count);
     return all_files;
 }
 
 /**
- * @brief From the command line arguments get the root directory to hash, changing it
- * from a relative path to an absolute path
- * @param result Already-parsed command line arguments
- * @return Absolute path to the directory we are hashing
+ * @brief Get the root directory to hash from command line arguments.
+ * @param result Already-parsed command line arguments.
+ * @return Absolute path to the directory we are hashing.
  */
-fs::path get_root_dir(const cxxopts::ParseResult &result)
-{
-    fs::path root_path;
-    if (result.count("d") || result.count("root-dir"))
-    {
-        root_path = result["d"].as<std::string>();
-        if (!fs::exists(root_path))
-        {
-            spdlog::critical("[!] Path '{}' does not exist", root_path.string());
-            exit(1);
-        }
-        if (!fs::is_directory(root_path))
-        {
-            spdlog::critical("[!] Path '{}' is not a directory", root_path.string());
-            exit(1);
-        }
-        if (root_path.is_relative())
-        {
-            root_path = fs::absolute(root_path);
-        }
-        spdlog::info("[+] Hashing {}", root_path.string());
-    }
-    else
-    {
+fs::path get_root_dir(const cxxopts::ParseResult &result) {
+    if (!(result.count("d") || result.count("root-dir"))) {
         spdlog::critical("[!] Path required (-d || --root-dir)");
         exit(1);
     }
+
+    fs::path root_path = result["d"].as<std::string>();
+    if (!fs::exists(root_path)) {
+        spdlog::critical("[!] Path '{}' does not exist", root_path.string());
+        exit(1);
+    }
+
+    if (!fs::is_directory(root_path)) {
+        spdlog::critical("[!] Path '{}' is not a directory", root_path.string());
+        exit(1);
+    }
+
+    if (root_path.is_relative()) {
+        root_path = fs::absolute(root_path);
+    }
+
+    spdlog::info("[+] Hashing {}", root_path.string());
     return root_path;
 }
 
 /**
- * @brief From the command line arguments get the hash algorithm as an enum
- * @param result Already-parsed command line arguments
- * @return Algorithm to use in hashing
+ * @brief Get the hash algorithm as an enum from command line arguments.
+ * @param result Already-parsed command line arguments.
+ * @return Algorithm to use in hashing.
  */
-HASHALG get_hashalg(const cxxopts::ParseResult &result)
-{
-    std::map<std::string, HASHALG> algs = {
-        {"md5", MD5},
-        {"sha1", SHA1},
-#ifndef _WIN32
-        {"sha224", SHA224},
-#endif
-        {"sha256", SHA256},
-        {"sha384", SHA384},
-        {"sha512", SHA512}};
-    std::string algstr;
-    if (result.count("a") || result.count("algorithm"))
-    {
-        algstr = result["a"].as<std::string>();
-        // A more portable to_lower()
-        std::transform(algstr.begin(), algstr.end(), algstr.begin(),
-                       [](unsigned char c)
-                       { return std::tolower(c); });
-        if (!algs.contains(algstr))
-        {
-            spdlog::error("[!] Must select 'md5', 'sha1', or 'sha256'");
-            exit(1);
-        }
-        spdlog::info("[+] Using algorithm '{}'", algstr);
-    }
-    else
-    {
-        spdlog::error("[!] algorithm required (-a || --algorithm)");
+HASHALG get_hashalg(const cxxopts::ParseResult &result) {
+    if (!(result.count("a") || result.count("algorithm"))) {
+        spdlog::error("[!] Algorithm required (-a || --algorithm)");
         spdlog::error("[!] Must select 'md5', 'sha1', or 'sha256'");
         exit(1);
     }
-    return algs[algstr];
+
+    std::string algstr = result["a"].as<std::string>();
+    std::transform(algstr.begin(), algstr.end(), algstr.begin(), ::tolower);
+
+    static const std::map<std::string, HASHALG> algs = {
+        {"md5", MD5}, {"sha1", SHA1},
+#ifndef _WIN32
+        {"sha224", SHA224},
+#endif
+        {"sha256", SHA256}, {"sha384", SHA384}, {"sha512", SHA512}};
+
+    if (!algs.contains(algstr)) {
+        spdlog::error("[!] Must select 'md5', 'sha1', or 'sha256'");
+        exit(1);
+    }
+
+    spdlog::info("[+] Using algorithm '{}'", algstr);
+    return algs.at(algstr);
 }
 
 /**
- * @brief Parse the command line prompt checksum file argument and get a list
- * of checksum files to match against during our search
- * @param result Already-parsed command line arguments
- * @result Vector of strings which are the file names of the checksum files
+ * @brief Parse the command line checksum file argument and get a list of checksum files.
+ * @param result Already-parsed command line arguments.
+ * @return Vector of strings which are the file names of the checksum files.
  */
-strvector get_checksum_files(const cxxopts::ParseResult &result)
-{
-    strvector checksum_files;
-    if (result.count("f") || result.count("hashfile-name"))
-    {
-        checksum_files = result["f"].as<strvector>();
-        for (const std::string &s : checksum_files)
-        {
+strvector get_checksum_files(const cxxopts::ParseResult &result) {
+    if (result.count("f") || result.count("hashfile-name")) {
+        strvector checksum_files = result["f"].as<strvector>();
+        for (const auto &s : checksum_files) {
             spdlog::info("[*] Checksum file pattern '{}'", s);
         }
+        return checksum_files;
     }
-    else if (result.count("x") || result.count("force"))
-    {
-        // force compute-only
-        spdlog::info("[*] Calculating hashes without validating");
-        checksum_files.emplace_back(COMPUTE_ONLY);
-    }
-    else
-    {
-        std::string response;
-        std::cout << "[*] No checksum file provided" << std::endl;
-        std::cout << "    Do you want to compute the hashes anyways? (Y/N) > ";
 
-        while (!s_ctrl_c)
-        {
-            std::cin >> response;
-            std::cout << std::endl;
-            if ((response.rfind("Y", 0) == 0) || (response.rfind("y", 0) == 0))
-            {
-                checksum_files.emplace_back(COMPUTE_ONLY);
-                break;
-            }
-            else if ((response.rfind("N", 0) == 0) || (response.rfind("n", 0) == 0))
-            {
-                spdlog::error("[!] Exiting...");
-                exit(0);
-            }
-            std::cout << "    Invalid - Please enter 'yes' or 'no' to continue (Y/N) > ";
-        }
+    if (result.count("x") || result.count("force")) {
+        spdlog::info("[*] Calculating hashes without validating");
+        return {COMPUTE_ONLY};
     }
-    return checksum_files;
+
+    std::string response;
+    std::cout << "[*] No checksum file provided\n"
+              << "    Do you want to compute the hashes anyways? (Y/N) > ";
+
+    while (!s_ctrl_c) {
+        std::cin >> response;
+        if (response.starts_with("Y") || response.starts_with("y")) {
+            return {COMPUTE_ONLY};
+        }
+        if (response.starts_with("N") || response.starts_with("n")) {
+            spdlog::error("[!] Exiting...");
+            exit(0);
+        }
+        std::cout << "    Invalid - Please enter 'yes' or 'no' to continue (Y/N) > ";
+    }
+
+    return {};
 }
 
 /**
