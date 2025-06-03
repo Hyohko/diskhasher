@@ -34,7 +34,7 @@ validating digital signatures using Ed22519 for greater \
 confidence in file integrity."""
 authors = ["Hyohko"]
 version = "0.5.4"
-edition = "2024"
+edition = "2021"
 license = "GPLv3"
 repository = "https://github.com/Hyohko/diskhasher"
 readme = "../README.md"

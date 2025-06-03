@@ -74,6 +74,12 @@ pub struct Arguments {
     /// Path to the public or private key being used in signing/verifying.
     /// Also stores the prefix for 'genkey'
     pub keyfile: String,
+    /// Regex pattern to include files
+    pub include_regex: Option<String>,
+    /// Regex pattern to exclude files
+    pub exclude_regex: Option<String>,
+    /// Whether to hash hidden files and folders
+    pub hash_hidden: Option<bool>,
 }
 
 const fn sorting_default() -> FileSortLogic {
@@ -101,6 +107,9 @@ impl FromArgMatches for Arguments {
                 jobs: matches.get_one::<u64>("jobs").copied(),
                 generate_hashfile: matches.get_one::<String>("generate_hashfile").cloned(),
                 keyfile: "".to_string(),
+                include_regex: matches.get_one::<String>("include_regex").cloned(),
+                exclude_regex: matches.get_one::<String>("exclude_regex").cloned(),
+                hash_hidden: matches.get_one::<bool>("hash_hidden").copied(),
             })
         } else if let Some(matches) = matches.subcommand_matches("file") {
             Ok(Self {
@@ -114,6 +123,9 @@ impl FromArgMatches for Arguments {
                 jobs: None,
                 generate_hashfile: None,
                 keyfile: "".to_string(),
+                include_regex: None,
+                exclude_regex: None,
+                hash_hidden: None,
             })
         } else if let Some(matches) = matches.subcommand_matches("sign") {
             Ok(Self {
@@ -127,6 +139,9 @@ impl FromArgMatches for Arguments {
                 jobs: None,
                 generate_hashfile: None,
                 keyfile: matches.get_one::<String>("private_key").unwrap().to_string(),
+                include_regex: None,
+                exclude_regex: None,
+                hash_hidden: None,
             })
         } else if let Some(matches) = matches.subcommand_matches("verify") {
             Ok(Self {
@@ -140,6 +155,9 @@ impl FromArgMatches for Arguments {
                 jobs: None,
                 generate_hashfile: None,
                 keyfile: matches.get_one::<String>("public_key").unwrap().to_string(),
+                include_regex: None,
+                exclude_regex: None,
+                hash_hidden: None,
             })
         } else if let Some(matches) = matches.subcommand_matches("genkey") {
             Ok(Self {
@@ -153,6 +171,9 @@ impl FromArgMatches for Arguments {
                 jobs: None,
                 generate_hashfile: None,
                 keyfile: matches.get_one::<String>("prefix").unwrap().to_string(),
+                include_regex: None,
+                exclude_regex: None,
+                hash_hidden: None,
             })
         } else {
             Err(Error::new(ErrorKind::UnknownArgument))
@@ -170,6 +191,9 @@ impl FromArgMatches for Arguments {
             self.logfile = matches.get_one::<String>("logfile").cloned();
             self.jobs = matches.get_one::<u64>("jobs").copied();
             self.generate_hashfile = matches.get_one::<String>("generate_hashfile").cloned();
+            self.include_regex = matches.get_one::<String>("include_regex").cloned();
+            self.exclude_regex = matches.get_one::<String>("exclude_regex").cloned();
+            self.hash_hidden = matches.get_one::<bool>("hash_hidden").copied();
             Ok(())
         } else if let Some(matches) = matches.subcommand_matches("file") {
             self.path_string = matches.get_one::<String>("filepath").unwrap().to_string();
@@ -311,6 +335,38 @@ fn dir_subcommand(alg_arg: &Arg) -> Command {
                     "Normally, when a hashfile pattern is set, only hash failures (ones \
                 that don't match a hashfile entry) is printed to STDOUT - if verbose \
                 is called, print successes and failures",
+                ),
+        )
+        .arg(
+            Arg::new("include_regex")
+                .long("include-regex")
+                .required(false)
+                .help("[Optional] Regex pattern for files to include in hashing")
+                .long_help(
+                    "Only files matching this regex will be processed. \
+                    Cannot be used with --exclude-regex.",
+                ),
+        )
+        .arg(
+            Arg::new("exclude_regex")
+                .long("exclude-regex")
+                .required(false)
+                .conflicts_with("include_regex")
+                .help("[Optional] Regex pattern for files/directories to exclude from hashing")
+                .long_help(
+                    "Files or directories matching this regex will be skipped. \
+                    Cannot be used with --include-regex.",
+                ),
+        )
+        .arg(
+            Arg::new("hash_hidden")
+                .long("hash-hidden")
+                .required(false)
+                .action(ArgAction::SetTrue) // Makes it a flag, if present it's true
+                .help("[Optional] Include hidden files and directories in hashing")
+                .long_help(
+                    "If set, hidden files and directories (those starting with a '.') \
+                    will be processed. By default, they are skipped unless an include_regex matches them explicitly.",
                 ),
         )
 }
