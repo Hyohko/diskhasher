@@ -461,7 +461,7 @@ impl DirHasher {
 
     /// Sort files by size or inode-order (Linux only).
     fn sort_checked_files(&mut self, sort_order: FileSortLogic) {
-// since we are popping off the last element of the vec to process it, in the instance
+        // since we are popping off the last element of the vec to process it, in the instance
         // of Largest-First hashing, the largest needs to be at the end of the vec, and
         // vice versa for smallest.
         match sort_order {
