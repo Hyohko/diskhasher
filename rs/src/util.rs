@@ -60,8 +60,8 @@ pub(crate) fn canonicalize_filepath(
         Ok(file_path_buf)
     } else {
         Err(HasherError::File {
-            why: String::from("Path is not a valid regular file"),
             path: file_path_buf.display().to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "Path is not a valid regular file"),
         })
     }
 }

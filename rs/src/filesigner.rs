@@ -46,7 +46,7 @@ pub fn gen_keypair(prefix: &str, password: Option<String>) -> Result<(), HasherE
         if Path::new(&st).exists() {
             return Err(HasherError::File {
                 path: st.to_string(),
-                why: "Keyfile already exists, delete and run 'genkey' again".to_string(),
+                source: std::io::Error::new(std::io::ErrorKind::AlreadyExists, "Keyfile already exists, delete and run 'genkey' again"),
             });
         }
     }
@@ -98,8 +98,8 @@ pub fn sign_file(
     let filepath = canonicalize(Path::new(&file_to_sign))?;
     if !filepath.is_file() {
         return Err(HasherError::File {
-            why: String::from("'File to Sign' Path is not a valid file"),
             path: filepath.display().to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "'File to Sign' Path is not a valid file"),
         });
     }
 
@@ -168,8 +168,8 @@ pub fn verify_file(file_to_sign: &String, public_key: &String) -> Result<(), Has
     let filepath = canonicalize(Path::new(file_to_sign))?;
     if !filepath.is_file() {
         return Err(HasherError::File {
-            why: String::from("'File to Sign' Path is not a valid file"),
             path: filepath.display().to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "'File to Sign' Path is not a valid file"),
         });
     }
 

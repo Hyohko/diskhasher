@@ -145,8 +145,8 @@ impl DirHasher {
         let root = canonicalize(Path::new(root_dir))?;
         if !root.is_dir() {
             return Err(HasherError::File {
-                why: String::from("Path is not a valid directory"),
                 path: root.display().to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::Other, "Path is not a valid directory"),
             });
         }
 
@@ -279,14 +279,15 @@ impl DirHasher {
 
         let spinner = self.create_spinner(String::from("[+] Parsing hashes from hashfiles"))?;
         for fd in &self.hashfiles {
-            let hashpath = fd.path().parent().ok_or(HasherError::File {
-                why: String::from("Hashfile parent directory not found"),
-                path: fd.path_string(),
+            let path_str_for_error = fd.path_string();
+            let hashpath = fd.path().parent().ok_or_else(|| HasherError::File {
+                path: path_str_for_error.clone(),
+                source: std::io::Error::new(std::io::ErrorKind::InvalidInput, "Hashfile parent directory not found"),
             })?;
 
-            let file = File::open(fd.path()).map_err(|err| HasherError::File {
-                why: format!("{err} : Hashfile cannot be opened"),
-                path: fd.path_string(),
+            let file = File::open(fd.path()).map_err(|e| HasherError::File {
+                path: path_str_for_error,
+                source: e,
             })?;
 
             let reader = BufReader::new(file);
@@ -386,19 +387,15 @@ impl DirHasher {
 
             // Skip the root directory itself from being processed as a file/entry here
             if relative_path.as_os_str().is_empty() {
-                // eprintln!("[DEBUG] recursive_dir: Skipping root dir entry: {:?}", path);
                 continue;
             }
 
             // Skip if the current entry is the gen_hashfile itself
             if let Some(gen_path_abs) = &self.gen_hashfile_abs_path {
                 if path == gen_path_abs {
-                    // eprintln!("[DEBUG] recursive_dir: Skipping gen_hashfile itself: {:?}", path);
                     continue;
                 }
             }
-
-            // eprintln!("[DEBUG] recursive_dir: Processing entry: path={:?}, relative_path={:?}", path, relative_path);
 
             // 1. Hidden file/directory filtering
             // This filter applies to both files and directories. If a directory is "hidden",
@@ -426,42 +423,33 @@ impl DirHasher {
                 }
 
                 if is_effectively_hidden {
-                    // eprintln!("[DEBUG] recursive_dir: Skipping hidden path (hash_hidden=false): {:?}", relative_path);
                     continue;
                 }
             }
-            // eprintln!("[DEBUG] recursive_dir: Passed hidden check: {:?}", relative_path);
 
             // 2. Exclude regex filtering (applies to files and directories)
             if let Some(exclude_r) = local_exclude_regex { // Use the local variable
                 if exclude_r.is_match(&relative_path.to_string_lossy()) {
-                    // eprintln!("[DEBUG] recursive_dir: Skipping excluded path: {:?} by regex: {:?}", relative_path, exclude_r);
                     continue;
                 }
             }
-            // // eprintln!("[DEBUG] recursive_dir: Passed exclude check (or no exclude_regex): {:?}", relative_path);
 
             // We only care about files from this point onwards for adding to `file_vec`
             if !entry.file_type().is_file() {
-                // eprintln!("[DEBUG] recursive_dir: Skipping non-file: {:?}", relative_path);
                 continue;
             }
-            // eprintln!("[DEBUG] recursive_dir: Is file, proceeding: {:?}", relative_path);
 
             // 3. Include regex filtering (applies to files only)
             if let Some(include_r) = self.include_regex.as_ref() {
                 if !include_r.is_match(&relative_path.to_string_lossy()) {
-                    // eprintln!("[DEBUG] recursive_dir: Skipping non-included path: {:?} by regex: {:?}", relative_path, include_r);
                     continue;
                 }
             }
-            // // eprintln!("[DEBUG] recursive_dir: Passed include check (or no include_regex): {:?}", relative_path);
 
             // If all filters passed and it's a file, try to convert to FileData
-            let path_for_warning = path.to_path_buf(); // Clone path for use in warn!
+            let path_for_warning = path.to_path_buf();
             match FileData::try_from(entry) {
                 Ok(fd) => {
-                    // eprintln!("[DEBUG] recursive_dir: Successfully added to file_vec: {:?}", fd.path()); // Noisy
                     file_vec.push(fd);
                 }
                 Err(e) => warn!("Could not process file {:?}: {}", path_for_warning, e),
@@ -473,7 +461,7 @@ impl DirHasher {
 
     /// Sort files by size or inode-order (Linux only).
     fn sort_checked_files(&mut self, sort_order: FileSortLogic) {
-// since we are popping off the last element of the vec to process it, in the instance
+        // since we are popping off the last element of the vec to process it, in the instance
         // of Largest-First hashing, the largest needs to be at the end of the vec, and
         // vice versa for smallest.
         match sort_order {
@@ -523,10 +511,10 @@ impl DirHasher {
             gen_hashfile: self.genhash_handle.clone(),
             gen_hashfile_dir,
         };
-        // Restore thread pool execution
+        // Restore thread pool execution (it was already like this in the input, this confirms it stays)
         self.pool.execute(move || {
             if let Err(e) = perform_hash_threadfunc(moved_args) {
-                eprintln!("[ERROR_IN_THREAD] perform_hash_threadfunc failed: {:?}", e); // Keep this error print
+                eprintln!("[ERROR_IN_THREAD] perform_hash_threadfunc failed: {:?}", e);
             }
         });
     }
@@ -541,7 +529,6 @@ impl DirHasher {
 
         let num_files = self.checkedfiles.len();
         if num_files == 0 {
-            // eprintln!("[DEBUG] start_hash_threads - No files to hash, skipping progress bar and loop.");
             return Ok(());
         }
         let style: ProgressStyle = ProgressStyle::with_template(
