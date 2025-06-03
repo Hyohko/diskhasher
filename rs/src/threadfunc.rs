@@ -158,7 +158,9 @@ pub(crate) fn perform_hash_threadfunc(args: ThreadFuncArgs) -> Result<(), Hasher
     if let Some(root_dir) = &args.gen_hashfile_dir {
         let stripped_path = args.fdata.path().strip_prefix(root_dir)?;
         let joined_path = Path::new("./").join(stripped_path).display().to_string();
-        filelog!(format!("{actual_hash} {joined_path}\n"), args.gen_hashfile);
+        let gen_hash_line = format!("{actual_hash} {joined_path}\n");
+        // eprintln!("[DEBUG] perform_hash_threadfunc: Attempting to write to gen_hashfile: {}", gen_hash_line.trim()); // Removed
+        filelog!(gen_hash_line, args.gen_hashfile);
     }
 
     let result = if args.force {

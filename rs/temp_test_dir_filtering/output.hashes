@@ -1,0 +1,4 @@
+d41d8cd98f00b204e9800998ecf8427e ./output.hashes
+7e55db001d319a94b0b713529a756623 ./file1.txt
+eea670f4ac941df71a3b5f268ebe3eac ./file2.log
+c96310e55d9677b978eae0dada47642c ./subdir1/file3.txt

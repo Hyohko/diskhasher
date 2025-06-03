@@ -61,6 +61,9 @@ fn main() {
                 args.logfile,
                 args.jobs,
                 args.generate_hashfile,
+                args.include_regex,
+                args.exclude_regex,
+                args.hash_hidden,
             ) {
                 Ok(v) => v,
                 Err(err) => {
