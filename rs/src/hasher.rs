@@ -54,16 +54,43 @@ use {
 // way to make it idiomatic Rust b/c we want to propagate
 // any errors from File::create
 macro_rules! opt_open_file {
-    ($logmsg:expr_2021, $opt_filename:expr_2021) => {
+    ($logmsg:expr, $opt_filename:expr) => {
         match $opt_filename {
-            Some(v) => {
-                info!("[+] {} -> {v}", $logmsg);
-                Some(Arc::new(Mutex::new(File::create(&v)?)))
+            Some(v_str) => {
+                info!("[+] {} -> {}", $logmsg, v_str);
+                match File::create(&v_str) {
+                    Ok(file) => Some(Arc::new(Mutex::new(file))),
+                    Err(e) => {
+                        eprintln!("[ERROR] opt_open_file! failed to create file '{}': {}", v_str, e);
+                        None
+                    }
+                }
             }
             None => None,
         }
     };
 }
+
+// The filelog macro was defined in macros.rs, but it's actually used by threadfunc.rs
+// and its definition needs to be available to threadfunc.rs.
+// For now, assuming it's globally available or correctly imported in threadfunc.rs.
+// If it were here, the change would be:
+// macro_rules! filelog {
+//     ($msg:expr, $filehandleopt:expr) => {
+//         if let Some(handle) = $filehandleopt {
+//             let mut guarded_filehandle = handle.lock().expect("Mutex unlock failure - Panic!");
+//             let write_result = (*guarded_filehandle).write_all($msg.as_bytes());
+//             if let Err(e) = write_result {
+//                 eprintln!("[ERROR] filelog! failed to write to file: {}", e);
+//             } else {
+//                 if let Err(e) = (*guarded_filehandle).flush() {
+//                     eprintln!("[ERROR] filelog! failed to flush file: {}", e);
+//                 }
+//             }
+//         }
+//     };
+// }
+
 
 /// This is our primary object, and we can construct one for every
 /// root directory we want to inspect.
@@ -79,6 +106,10 @@ pub struct DirHasher {
     loghandle: Option<Arc<Mutex<File>>>,
     mp: MultiProgress, // is an Arc type
     genhash_handle: Option<Arc<Mutex<File>>>,
+    include_regex: Option<Regex>,
+    exclude_regex: Option<Regex>,
+    hash_hidden: bool, // Default to true if not specified
+    gen_hashfile_abs_path: Option<PathBuf>, // Store absolute path to the generated hash file
 }
 
 impl DirHasher {
@@ -93,8 +124,23 @@ impl DirHasher {
         logfile: Option<String>,
         jobs: Option<u64>,
         gen_hashfile: Option<String>,
+        include_regex_pattern: Option<String>,
+        exclude_regex_pattern: Option<String>,
+        hash_hidden_opt: Option<bool>,
     ) -> Result<Self, HasherError> {
         let hash_regex = Self::build_hash_regex(&hashfile_pattern, &gen_hashfile)?;
+
+        let include_regex = include_regex_pattern
+            .map(|pat| Regex::new(&pat))
+            .transpose()
+            .map_err(|e| HasherError::Regex { why: format!("Invalid include regex: {e}") })?;
+
+        let exclude_regex = exclude_regex_pattern
+            .map(|pat| Regex::new(&pat))
+            .transpose()
+            .map_err(|e| HasherError::Regex { why: format!("Invalid exclude regex: {e}") })?;
+
+        let hash_hidden = hash_hidden_opt.unwrap_or(true); // Default to true
 
         let root = canonicalize(Path::new(root_dir))?;
         if !root.is_dir() {
@@ -106,8 +152,28 @@ impl DirHasher {
 
         let avail_threads = Self::determine_thread_count(jobs)?;
         let loghandle = opt_open_file!("Logging hash results", logfile);
-        let genhash_path = gen_hashfile.map(|v| root.join(v).display().to_string());
-        let genhash_handle = opt_open_file!("Generating hashfile", genhash_path);
+
+        let mut gen_hashfile_abs_path_store: Option<PathBuf> = None;
+        let final_genhash_path_opt: Option<String> = gen_hashfile.map(|user_path_str| {
+            // Determine if user_path_str is already absolute or relative to root
+            let mut path_to_create = PathBuf::from(&user_path_str);
+            if !path_to_create.is_absolute() {
+                path_to_create = root.join(&path_to_create);
+            }
+            // Try to canonicalize it early to store its absolute form.
+            // This might fail if the path doesn't exist yet, which is fine for creation.
+            // We store the intended absolute path for filtering.
+            // File::create will handle actual creation.
+            match path_to_create.canonicalize() {
+                Ok(p) => gen_hashfile_abs_path_store = Some(p),
+                Err(_) => { // If it can't be canonicalized (e.g. not existing), store the constructed absolute path
+                    gen_hashfile_abs_path_store = Some(path_to_create.clone());
+                }
+            }
+            path_to_create.display().to_string()
+        });
+
+        let genhash_handle = opt_open_file!("Generating hashfile", final_genhash_path_opt);
 
         let mp = MultiProgress::new();
         Ok(Self {
@@ -123,6 +189,10 @@ impl DirHasher {
             loghandle,
             mp,
             genhash_handle,
+            include_regex,
+            exclude_regex,
+            hash_hidden,
+            gen_hashfile_abs_path: gen_hashfile_abs_path_store,
         })
     }
 
@@ -185,7 +255,9 @@ impl DirHasher {
         sort_order: FileSortLogic,
     ) -> Result<(), HasherError> {
         let file_vec = self.recursive_dir()?;
+        // eprintln!("[DEBUG] DirHasher::run - بعد recursive_dir, file_vec.len(): {}", file_vec.len());
         self.identify_hashfiles(file_vec, force)?;
+        // eprintln!("[DEBUG] DirHasher::run - بعد identify_hashfiles, self.checkedfiles.len(): {}", self.checkedfiles.len());
         self.load_hashes().or_else(|err| {
             if force {
                 warn!("[+] No valid hashfile, but --force flag set");
@@ -263,9 +335,12 @@ impl DirHasher {
         force: bool,
     ) -> Result<(), HasherError> {
         info!("[+] Identifying hashfiles");
+        // eprintln!("[DEBUG] identify_hashfiles - input file_vec.len(): {}", file_vec.len());
         (self.hashfiles, self.checkedfiles) = file_vec
             .into_iter()
             .partition(|f| path_matches_regex(&self.hash_regex, f.path()));
+        // eprintln!("[DEBUG] identify_hashfiles - بعد التقسيم, self.checkedfiles.len(): {}", self.checkedfiles.len());
+        // eprintln!("[DEBUG] identify_hashfiles - بعد التقسيم, self.hashfiles.len(): {}", self.hashfiles.len());
         if self.hashfiles.is_empty() {
             let reason = String::from("No hashfiles matched the hashfile pattern");
             if force {
@@ -285,13 +360,113 @@ impl DirHasher {
     /// all files and directories for which we do not have permission to read.
     fn recursive_dir(&mut self) -> Result<Vec<FileData>, HasherError> {
         let spinner = self.create_spinner(format!("[+] Recursing through {:?}", self.root))?;
-        let file_vec: Vec<FileData> = spinner
-            .wrap_iter(WalkDir::new(&self.root).into_iter())
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_file())
-            .map(FileData::try_from)
-            .filter_map(Result::ok)
-            .collect();
+        let mut file_vec: Vec<FileData> = Vec::new();
+
+        // local_hash_hidden and local_include_regex were duplicated, corrected here.
+        // self.hash_hidden and self.include_regex.as_ref() are used directly below,
+        // so these specific local assignments for them are not strictly necessary unless for closure captures later.
+        let local_exclude_regex = self.exclude_regex.as_ref();
+
+        let walker = WalkDir::new(&self.root).into_iter();
+
+        for entry_result in spinner.wrap_iter(walker) {
+            let entry = match entry_result {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!("Error reading directory entry: {}", e);
+                    continue;
+                }
+            };
+
+            let path = entry.path();
+            let relative_path = match path.strip_prefix(&self.root) {
+                Ok(p) => p,
+                Err(_) => path, // Should not happen
+            };
+
+            // Skip the root directory itself from being processed as a file/entry here
+            if relative_path.as_os_str().is_empty() {
+                // eprintln!("[DEBUG] recursive_dir: Skipping root dir entry: {:?}", path);
+                continue;
+            }
+
+            // Skip if the current entry is the gen_hashfile itself
+            if let Some(gen_path_abs) = &self.gen_hashfile_abs_path {
+                if path == gen_path_abs {
+                    // eprintln!("[DEBUG] recursive_dir: Skipping gen_hashfile itself: {:?}", path);
+                    continue;
+                }
+            }
+
+            // eprintln!("[DEBUG] recursive_dir: Processing entry: path={:?}, relative_path={:?}", path, relative_path);
+
+            // 1. Hidden file/directory filtering
+            // This filter applies to both files and directories. If a directory is "hidden",
+            // its direct entry is skipped. WalkDir might still yield its children depending on OS and WalkDir version.
+            // This logic aims to filter out entries if any component of their relative path is hidden,
+            // or if the entry itself is hidden.
+            if !self.hash_hidden {
+                // An entry is hidden if its own name starts with "." or if any parent
+                // directory in the relative_path starts with "."
+                let mut is_effectively_hidden = false;
+                if entry.file_name().to_string_lossy().starts_with('.') {
+                    is_effectively_hidden = true;
+                } else {
+                    let mut parent = relative_path.parent();
+                    while let Some(p) = parent {
+                        if p.file_name().map_or(false, |name| name.to_string_lossy().starts_with('.')) {
+                            is_effectively_hidden = true;
+                            break;
+                        }
+                        if p.as_os_str().is_empty() { // Reached the top of the relative path
+                            break;
+                        }
+                        parent = p.parent();
+                    }
+                }
+
+                if is_effectively_hidden {
+                    // eprintln!("[DEBUG] recursive_dir: Skipping hidden path (hash_hidden=false): {:?}", relative_path);
+                    continue;
+                }
+            }
+            // eprintln!("[DEBUG] recursive_dir: Passed hidden check: {:?}", relative_path);
+
+            // 2. Exclude regex filtering (applies to files and directories)
+            if let Some(exclude_r) = local_exclude_regex { // Use the local variable
+                if exclude_r.is_match(&relative_path.to_string_lossy()) {
+                    // eprintln!("[DEBUG] recursive_dir: Skipping excluded path: {:?} by regex: {:?}", relative_path, exclude_r);
+                    continue;
+                }
+            }
+            // // eprintln!("[DEBUG] recursive_dir: Passed exclude check (or no exclude_regex): {:?}", relative_path);
+
+            // We only care about files from this point onwards for adding to `file_vec`
+            if !entry.file_type().is_file() {
+                // eprintln!("[DEBUG] recursive_dir: Skipping non-file: {:?}", relative_path);
+                continue;
+            }
+            // eprintln!("[DEBUG] recursive_dir: Is file, proceeding: {:?}", relative_path);
+
+            // 3. Include regex filtering (applies to files only)
+            if let Some(include_r) = self.include_regex.as_ref() {
+                if !include_r.is_match(&relative_path.to_string_lossy()) {
+                    // eprintln!("[DEBUG] recursive_dir: Skipping non-included path: {:?} by regex: {:?}", relative_path, include_r);
+                    continue;
+                }
+            }
+            // // eprintln!("[DEBUG] recursive_dir: Passed include check (or no include_regex): {:?}", relative_path);
+
+            // If all filters passed and it's a file, try to convert to FileData
+            let path_for_warning = path.to_path_buf(); // Clone path for use in warn!
+            match FileData::try_from(entry) {
+                Ok(fd) => {
+                    // eprintln!("[DEBUG] recursive_dir: Successfully added to file_vec: {:?}", fd.path()); // Noisy
+                    file_vec.push(fd);
+                }
+                Err(e) => warn!("Could not process file {:?}: {}", path_for_warning, e),
+            }
+        }
         self.mp.remove(&spinner);
         Ok(file_vec)
     }
@@ -348,19 +523,27 @@ impl DirHasher {
             gen_hashfile: self.genhash_handle.clone(),
             gen_hashfile_dir,
         };
+        // Restore thread pool execution
         self.pool.execute(move || {
-            perform_hash_threadfunc(moved_args).ok();
+            if let Err(e) = perform_hash_threadfunc(moved_args) {
+                eprintln!("[ERROR_IN_THREAD] perform_hash_threadfunc failed: {:?}", e); // Keep this error print
+            }
         });
     }
 
     /// For each file collected, spawn a single hash job.
     fn start_hash_threads(&mut self, force: bool, verbose: bool) -> Result<(), HasherError> {
+        // eprintln!("[DEBUG] start_hash_threads - self.checkedfiles.len(): {}", self.checkedfiles.len());
         info!(
             "[+] Checking hashes - spinning up {} worker threads",
             self.pool.max_count()
         );
 
         let num_files = self.checkedfiles.len();
+        if num_files == 0 {
+            // eprintln!("[DEBUG] start_hash_threads - No files to hash, skipping progress bar and loop.");
+            return Ok(());
+        }
         let style: ProgressStyle = ProgressStyle::with_template(
             "[{elapsed_precise}] \
             ({percent:3}%) \
